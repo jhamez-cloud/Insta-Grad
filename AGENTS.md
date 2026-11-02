@@ -101,21 +101,33 @@ minimum needed.
   need.
 - Respect `prefers-reduced-motion`, avoid unnecessary infinite loops, and test
   animation on mobile-sized layouts and lower-powered devices.
-- The prompt bar's liquid-metal rims come from `metal-fx`, including the source,
-  model, effort, dictation, and send controls. Mount them only after
-  hydration, because the package renders its supported and fallback markup
+- The prompt bar's liquid-metal rims come from `metal-fx` on the source,
+  dictation, and send controls. Model and effort choices use flat surfaces.
+  Source and send use 2px rims with the package's bounded `useMetalBend` vector
+  deformation on fine mouse pointers; dictation retains a 1.5px rim. Mount metal
+  only after hydration, because the package renders its supported and fallback markup
   differently on the server, and skip it entirely under reduced motion. Tune it
   through the `metal`, `metalPreset`, and `metalStrength` props on `PromptBar`
   instead of restyling the generated wrapper.
 - Toolbar controls are 32px tall, or 36px on coarse pointers, with stronger metal
   on hover, focus, and active states. Preserve their stable focus shells.
+  Send uses a thin Lucide arrow with pale ink on a dark semantic surface in both
+  themes; keep its fill in a stable CSS variable so liquid-bend cleanup restores
+  the current enabled state.
 - `PromptBarBeam` composes the installed `border-beam` package as a decorative
   overlay on the prompt surface. It uses the primary/chart tokens, runs while
-  focused or active, and keeps a static edge at rest or under reduced motion.
+  focused or active, and keeps a neutral static edge at rest or under reduced
+  motion.
+  Its bounded 2px traveling arc replaces the prompt surface's metal rim while
+  `borderBeam` is enabled; the 2.5px surface metal rim remains available when it
+  is disabled.
   Toggle it with `PromptBar`'s `borderBeam` prop; never wrap the textarea in a
   state-dependent effect wrapper.
 - Spend visual complexity on a clear focal interaction; keep surrounding layout
   disciplined, responsive, and readable.
+- Conversation, composer, and loading lanes share a 56rem maximum width; the
+  composer uses `width={896}` and streaming analysis caps at 50rem. Preserve
+  responsive gutters and the character-based prose limits.
 
 ## Installed shared UI
 
@@ -127,7 +139,7 @@ minimum needed.
 | Form and surface primitives | `components/ui/{card,input,textarea,field,badge,separator,progress,skeleton,empty,sheet}.tsx` | Installed shadcn primitives for dashboard surfaces, forms, feedback, empty states, and the mobile navigation sheet |
 | Chat primitives | `components/ui/{message-scroller,message,bubble,attachment,marker,trace}.tsx` | Installed shadcn conversation primitives for accessible streamed chat composition |
 | ReactBits interaction set | `components/ui/{Lightfall,ParticleText,ClickSpark,Folder,Stepper,ThoughtLine,PromptBar}.tsx` | Owner-supplied components; preserve their public APIs and configure through props only |
-| `PromptBarBeam` | `components/ui/prompt-bar-beam.tsx` | Theme-aware `border-beam` overlay for the prompt surface; static resting/reduced-motion edge and activity-driven animation |
+| `PromptBarBeam` | `components/ui/prompt-bar-beam.tsx` | Theme-aware 2px traveling border arc over a neutral resting/reduced-motion edge; replaces the surface metal rim while enabled |
 | `ThemeProvider` | `components/theme-provider.tsx` | Wraps `next-themes`, follows system theme, disables transition flashes, and provides the `d` keyboard shortcut outside typing targets |
 | `cn` utility | `lib/utils.ts` | Re-exports the installed `cn` package for class composition |
 
@@ -166,9 +178,9 @@ and `skills-lock.json` together when the installed skill set changes.
 | `@fontsource-variable/noto-serif` | `5.3.0` | Local Noto Serif variable font asset |
 | `lucide-react` | `1.66.0` | Project icon library |
 | `@hugeicons/react`, `@hugeicons/core-free-icons` | `1.1.10`, `4.4.0` | Prompt bar icon set |
-| `motion` | `12.43.0` | Prompt bar glyph and progress animation |
+| `motion` | `12.43.0` | Swipe gestures, thought progress animation, and reduced-motion helpers |
 | `thinking-orbs` | `0.3.2` | Thinking state orbs in the chat trace |
-| `metal-fx` | `2.0.11` | WebGL liquid-metal rims on the prompt bar and its controls |
+| `metal-fx` | `2.0.11` | WebGL metal rims on source, dictation, and send controls, with vector bending on source/send; optional surface rim without the border beam |
 | `border-beam` | `1.4.1` | Traveling border highlight on the active prompt surface |
 | `class-variance-authority` | `0.7.1` | Typed component variants |
 | `cn` | `0.5.1` | Class-name composition utility |

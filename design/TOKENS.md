@@ -50,17 +50,20 @@ than these approximations. Status and source colors come from the chart scale.
 - Motion curves are `--ease-out`, `--ease-in-out`, and `--ease-drawer`.
   Interactive UI remains below 300ms; long motion is limited to explanatory
   landing visuals and purposeful system-state animations.
-- The prompt surface and its controls carry liquid-metal rims supplied by
-  `metal-fx`: a 2.5px ring on the stage and 1.5px on toolbar controls.
-  They follow the app theme and are disabled under reduced
-  motion. Controls strengthen on hover, focus, and activation; maximum effort
-  and dictation also retain a semantic tinted fill. Toolbar controls are 32px,
-  increasing to 36px on coarse pointers.
+- Source and send controls carry 2px liquid-metal rims supplied by `metal-fx`
+  and bounded vector deformation through `useMetalBend` on fine mouse pointers.
+  Dictation retains a 1.5px metal rim; model and effort choices stay flat.
+  Metal follows the app theme and is disabled under reduced motion. Controls
+  strengthen on hover, focus, and activation; maximum effort and dictation
+  retain a semantic tinted fill. Toolbar controls are 32px, increasing to 36px
+  on coarse pointers. The send arrow is a thin Lucide glyph with pale ink on a
+  dark semantic fill in both themes; its fill variable survives bend cleanup.
 - The prompt surface also uses `border-beam` for a contained primary-to-chart
-  border highlight while focused, showing a menu, dictating, or working. It
-  leaves a static hairline at rest and under reduced motion, pauses when hidden
-  or offscreen, and never covers text or intercepts input. `borderBeam={false}`
-  disables this layer independently of metal. Keep surrounding cards flat.
+  2px traveling arc while focused, showing a menu, dictating, or working. It
+  leaves a neutral static hairline at rest and under reduced motion, pauses when
+  hidden or offscreen, and never covers text or intercepts input. `borderBeam={false}`
+  disables this layer and restores the 2.5px surface metal rim when metal is
+  enabled. Never stack both perimeter effects. Keep surrounding cards flat.
 
 ## Layout grid
 
@@ -71,6 +74,8 @@ than these approximations. Status and source colors come from the chart scale.
 - Sidebar: `--sidebar-width` (272px), with 16px internal padding.
 - Main canvas: flexible column with a 64–76ch reading lane and optional
   280–340px context rail.
+- Conversation, composer, and loading lanes cap at 56rem (896px), with streaming
+  analysis capped at 50rem; prose retains its character-based reading limits.
 - Landing content: `--content-max` (1180px), left aligned except for the hero
   wordmark and its prompt stage.
 - Mobile: one canvas, 16px gutters, sidebar becomes an accessible sheet.

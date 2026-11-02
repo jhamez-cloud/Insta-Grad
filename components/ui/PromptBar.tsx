@@ -14,8 +14,15 @@ import React, {
   type PointerEvent,
   type ReactNode
 } from 'react';
-import { animate, useMotionValue, useMotionValueEvent } from 'motion/react';
-import { MetalFx, type MetalFxPreset } from 'metal-fx';
+import { ArrowUp, Square } from 'lucide-react';
+import {
+  BEND_DEFAULTS,
+  MetalFx,
+  useMetalBend,
+  type BendConfig,
+  type MetalFxPreset,
+  type MetalFxProps
+} from 'metal-fx';
 import { PromptBarBeam } from '@/components/ui/prompt-bar-beam';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
@@ -88,7 +95,7 @@ export interface PromptBarProps {
   tilt?: number;
   pressScale?: number;
   className?: string;
-  /** Liquid-metal rims on the input surface and its controls. */
+  /** Liquid-metal rims on source, dictation, and send controls. */
   metal?: boolean;
   metalPreset?: MetalFxPreset;
   metalStrength?: number;
@@ -131,10 +138,68 @@ type MetalFrameProps = {
   strength: number;
   radius: number;
   ringCssPx?: number;
+  gooey?: boolean;
+  paused?: boolean;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
 };
+
+// Keep the dent local to the compact control, with the package's spring physics.
+// Per-instance config avoids changing other metal surfaces or the shared shader.
+const GOOEY_BEND: BendConfig = {
+  ...BEND_DEFAULTS,
+  strength: 0.9,
+  reach: 18,
+  blob: 10,
+  liquidBlob: 8,
+  maxDisp: 6,
+  liquid: 6,
+  liquidReach: 5
+};
+const STATIC_BEND: BendConfig = { ...GOOEY_BEND, enabled: false };
+
+function GooeyMetalFx(props: MetalFxProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const pointerType = useRef('mouse');
+  const interaction = useRef<{
+    finePointer: MediaQueryList;
+    reducedMotion: MediaQueryList;
+    hasCanvas: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    interaction.current = {
+      finePointer: window.matchMedia('(hover: hover) and (pointer: fine)'),
+      reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)'),
+      hasCanvas: Boolean(frameRef.current?.querySelector('canvas.metal-fx-canvas'))
+    };
+    const trackPointer = (event: globalThis.PointerEvent) => {
+      pointerType.current = event.pointerType;
+    };
+    document.addEventListener('pointermove', trackPointer, { passive: true });
+    document.addEventListener('pointerdown', trackPointer, { passive: true });
+    return () => {
+      interaction.current = null;
+      document.removeEventListener('pointermove', trackPointer);
+      document.removeEventListener('pointerdown', trackPointer);
+    };
+  }, []);
+
+  const getBendConfig = useCallback(() => {
+    const environment = interaction.current;
+    const enabled =
+      environment?.hasCanvas &&
+      pointerType.current === 'mouse' &&
+      !document.hidden &&
+      environment.finePointer.matches &&
+      !environment.reducedMotion.matches;
+    return enabled ? GOOEY_BEND : STATIC_BEND;
+  }, []);
+  useMetalBend(frameRef, getBendConfig);
+
+  return <MetalFx ref={frameRef} {...props} />;
+}
 
 /**
  * Kept at module scope so the wrapper keeps a stable component identity across
@@ -148,29 +213,35 @@ function MetalFrame({
   strength,
   radius,
   ringCssPx = 1.5,
+  gooey = false,
+  paused = false,
   className,
   style,
   children
 }: MetalFrameProps) {
   if (!on) return <>{children}</>;
+  const Frame = gooey ? GooeyMetalFx : MetalFx;
   return (
-    <MetalFx
+    <Frame
       preset={preset}
       theme={theme}
       strength={strength}
       borderRadius={radius}
       ringCssPx={ringCssPx}
+      paused={paused}
+      innerShadow={gooey || undefined}
       className={className}
       style={style}
     >
       {children}
-    </MetalFx>
+    </Frame>
   );
 }
 
 type MetalControlProps = Pick<MetalFrameProps, 'on' | 'preset' | 'theme' | 'strength' | 'children'> & {
   active?: boolean;
   emphasized?: boolean;
+  gooey?: boolean;
   className?: string;
 };
 
@@ -182,6 +253,7 @@ function MetalControl({
   strength,
   active = false,
   emphasized = false,
+  gooey = false,
   className,
   children
 }: MetalControlProps) {
@@ -194,6 +266,7 @@ function MetalControl({
       className={cn('pb-control inline-flex min-w-0 flex-none rounded-lg', className)}
       data-active={active ? '' : undefined}
       data-emphasis={emphasized ? '' : undefined}
+      data-gooey={on && gooey ? '' : undefined}
       onPointerEnter={e => setHovered(e.pointerType === 'mouse')}
       onPointerLeave={() => setHovered(false)}
       onFocusCapture={() => setFocused(true)}
@@ -205,7 +278,9 @@ function MetalControl({
         theme={theme}
         strength={strength * (engaged ? 1 : 0.6)}
         radius={10}
-        ringCssPx={1.5}
+        ringCssPx={gooey ? 2 : 1.5}
+        gooey={gooey}
+        paused={gooey && !engaged}
         className="min-w-0 w-full"
         style={{ display: 'flex', background: 'var(--pb-control-bg)', color: 'inherit' }}
       >
@@ -220,9 +295,6 @@ const CONTROL_BUTTON_CLASS =
 const ICON_BUTTON_CLASS =
   'inline-grid size-8 flex-none cursor-pointer touch-manipulation place-items-center rounded-lg border-0 bg-transparent p-0 text-inherit outline-none select-none [-webkit-tap-highlight-color:transparent] [@media(pointer:coarse)]:size-9';
 
-const ARROW_UP = [12, 4.5, 18.5, 11, 14.25, 11, 14.25, 19.5, 9.75, 19.5, 9.75, 11, 5.5, 11];
-const SQUARE = [12, 6, 18, 6, 18, 12, 18, 18, 6, 18, 6, 12, 6, 6];
-const EASE_IN_OUT: [number, number, number, number] = [0.77, 0, 0.175, 1];
 const LINE = 22;
 const EDGE = 11;
 
@@ -254,15 +326,6 @@ const DEFAULT_MODELS: PromptBarModel[] = [
 ];
 const DEFAULT_EFFORTS = ['Low', 'Medium', 'High', 'Extra', 'Max'];
 
-const mix = (a: number, b: number, t: number) => a + (b - a) * t;
-const pathAt = (a: number[], b: number[], t: number) => {
-  let d = '';
-  for (let i = 0; i < a.length; i += 2) {
-    d += `${i ? 'L' : 'M'}${mix(a[i], b[i], t).toFixed(2)} ${mix(a[i + 1], b[i + 1], t).toFixed(2)}`;
-  }
-  return `${d}Z`;
-};
-
 const parseToken = (draft: string): Token | null => {
   const m = /(^|\s)([@/])([\w-]*)$/.exec(draft);
   if (!m) return null;
@@ -286,46 +349,22 @@ function usePromptReducedMotion() {
 }
 
 function SendGlyph({ busy, morphDuration, squash, tilt }: SendGlyphProps) {
-  const reduce = usePromptReducedMotion();
-  const svgRef = useRef<SVGSVGElement>(null);
-  const pathRef = useRef<SVGPathElement>(null);
-  const dir = useRef(busy ? 1 : -1);
-  const t = useMotionValue(busy ? 1 : 0);
-
-  useEffect(() => {
-    const target = busy ? 1 : 0;
-    dir.current = busy ? 1 : -1;
-    if (t.get() === target) return undefined;
-    const controls = animate(
-      t,
-      target,
-      reduce ? { duration: 0 } : { duration: morphDuration / 1000, ease: EASE_IN_OUT }
-    );
-    return () => controls.stop();
-  }, [busy, morphDuration, reduce, t]);
-
-  useMotionValueEvent(t, 'change', v => {
-    pathRef.current?.setAttribute('d', pathAt(ARROW_UP, SQUARE, v));
-    const goo = reduce ? 0 : Math.sin(v * Math.PI);
-    const sx = 1 - squash * goo;
-    if (svgRef.current) {
-      svgRef.current.style.transform = goo ? `rotate(${dir.current * tilt * goo}deg) scale(${sx}, ${1 / sx})` : '';
-    }
-  });
-
   return (
-    <svg
-      ref={svgRef}
-      className="block size-[18px] origin-center"
-      viewBox="0 0 24 24"
+    <span
+      className="pb-send-glyph inline-grid size-5 place-items-center"
+      data-busy={busy ? '' : undefined}
       aria-hidden="true"
-      fill="currentColor"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinejoin="round"
+      style={
+        {
+          '--pb-glyph-duration': `${morphDuration}ms`,
+          '--pb-glyph-squash': Math.max(0.9, 1 - squash),
+          '--pb-glyph-tilt': `${tilt}deg`
+        } as CSSProperties
+      }
     >
-      <path ref={pathRef} d={pathAt(ARROW_UP, SQUARE, t.get())} />
-    </svg>
+      <ArrowUp className="pb-send-arrow col-start-1 row-start-1" size={20} strokeWidth={1.5} />
+      <Square className="pb-send-stop col-start-1 row-start-1" size={14} fill="currentColor" strokeWidth={0} />
+    </span>
   );
 }
 
@@ -338,6 +377,7 @@ const STYLE = `
   color: color-mix(in srgb, var(--pb-ink) 78%, var(--pb-bg));
   transition: background-color 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.23,1,0.32,1);
 }
+.pb-control[data-gooey] { background: transparent; }
 .pb-control[data-active] {
   --pb-control-bg: color-mix(in srgb, var(--pb-ink) 12%, var(--pb-bg));
   color: var(--pb-ink);
@@ -351,6 +391,29 @@ const STYLE = `
   outline-offset: 3px;
 }
 .pb-control:has(button:active) { transform: scale(var(--pb-press)); }
+.pb-surface[data-edge] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pb-ink) 12%, transparent);
+}
+.pb-send-frame {
+  --pb-send-bg: var(--foreground);
+  --pb-send-ink: var(--background);
+  --pb-send-fill: color-mix(in srgb, var(--pb-send-bg) 74%, var(--pb-bg));
+  transition: transform 160ms var(--ease-out);
+}
+.pb-send-frame[data-armed] { --pb-send-fill: var(--pb-send-bg); }
+:where(.dark) .pb-send-frame {
+  --pb-send-bg: var(--background);
+  --pb-send-ink: var(--foreground);
+}
+.pb-send-frame[data-pressed] { transform: scale(var(--pb-press)); }
+.pb-send-arrow, .pb-send-stop {
+  transition: opacity var(--pb-glyph-duration) ease, transform var(--pb-glyph-duration) var(--ease-in-out);
+}
+.pb-send-stop, .pb-send-glyph[data-busy] .pb-send-arrow {
+  opacity: 0;
+  transform: rotate(var(--pb-glyph-tilt)) scale(var(--pb-glyph-squash));
+}
+.pb-send-glyph[data-busy] .pb-send-stop { opacity: 1; transform: none; }
 @media (hover: hover) and (pointer: fine) {
   .pb-control:hover {
     --pb-control-bg: color-mix(in srgb, var(--pb-ink) 10%, var(--pb-bg));
@@ -358,7 +421,8 @@ const STYLE = `
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pb-control:has(button:active) { transform: none; }
+  .pb-control:has(button:active), .pb-send-frame[data-pressed] { transform: none; }
+  .pb-send-arrow, .pb-send-stop { transition: none; transform: none !important; }
   .pb-listening > i { animation: none !important; }
 }
 `;
@@ -860,7 +924,7 @@ const PromptBar: React.FC<PromptBarProps> = ({
       ) : null}
 
       <MetalFrame
-        on={metalOn}
+        on={metalOn && !borderBeam}
         preset={metalPreset}
         theme={metalTheme}
         strength={metalStrength}
@@ -870,8 +934,9 @@ const PromptBar: React.FC<PromptBarProps> = ({
         style={{ display: 'flex', background: 'var(--pb-bg)', color: 'var(--pb-ink)' }}
       >
         <div
-          className="relative isolate flex w-full cursor-text flex-col gap-2 p-3 [background:var(--pb-bg)] [border-radius:var(--pb-radius)] before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:opacity-0 before:content-[''] before:[background:radial-gradient(140%_120%_at_0%_100%,color-mix(in_srgb,var(--pb-spark)_26%,transparent),transparent_62%)] before:[transition:opacity_500ms_ease] data-[max]:before:opacity-100"
+          className="pb-surface relative isolate flex w-full cursor-text flex-col gap-2 p-3 [background:var(--pb-bg)] [border-radius:var(--pb-radius)] before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:rounded-[inherit] before:opacity-0 before:content-[''] before:[background:radial-gradient(140%_120%_at_0%_100%,color-mix(in_srgb,var(--pb-spark)_26%,transparent),transparent_62%)] before:[transition:opacity_500ms_ease] data-[max]:before:opacity-100"
           role="presentation"
+          data-edge={borderBeam && !metalReady ? '' : undefined}
           data-max={maxed ? '' : undefined}
           onPointerDown={e => {
             if (e.target === e.currentTarget || e.target === inputRef.current) closeMenus();
@@ -935,7 +1000,7 @@ const PromptBar: React.FC<PromptBarProps> = ({
           />
 
           <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
-            <MetalControl {...controlMetal} active={open === 'at'}>
+            <MetalControl {...controlMetal} active={open === 'at'} gooey>
               <button
                 type="button"
                 className={ICON_BUTTON_CLASS}
@@ -954,7 +1019,10 @@ const PromptBar: React.FC<PromptBarProps> = ({
               </button>
             </MetalControl>
             {models.length > 0 ? (
-              <MetalControl {...controlMetal} active={modelOpen} className="shrink">
+              <div
+                className="pb-control inline-flex min-w-0 flex-none shrink rounded-lg"
+                data-active={modelOpen ? '' : undefined}
+              >
                 <button
                   type="button"
                   className={CONTROL_BUTTON_CLASS}
@@ -973,10 +1041,14 @@ const PromptBar: React.FC<PromptBarProps> = ({
                   <span className="max-w-32 truncate">{model.name}</span>
                   <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2.4} className="flex-none" />
                 </button>
-              </MetalControl>
+              </div>
             ) : null}
             {efforts.length > 0 ? (
-              <MetalControl {...controlMetal} active={effortOpen} emphasized={maxed} className="shrink">
+              <div
+                className="pb-control inline-flex min-w-0 flex-none shrink rounded-lg"
+                data-active={effortOpen ? '' : undefined}
+                data-emphasis={maxed ? '' : undefined}
+              >
                 <button
                   type="button"
                   className={CONTROL_BUTTON_CLASS}
@@ -994,7 +1066,7 @@ const PromptBar: React.FC<PromptBarProps> = ({
                   <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={2} className="flex-none" />
                   <span className="max-w-24 truncate">{level}</span>
                 </button>
-              </MetalControl>
+              </div>
             ) : null}
             <span className="flex-auto" aria-hidden="true" />
             {onDictate ? (
@@ -1023,7 +1095,11 @@ const PromptBar: React.FC<PromptBarProps> = ({
                 </button>
               </MetalControl>
             ) : null}
-            <div className="pb-send-frame inline-flex flex-none rounded-lg">
+            <div
+              className="pb-send-frame inline-flex flex-none rounded-lg"
+              data-armed={armed ? '' : undefined}
+              data-pressed={pressed ? '' : undefined}
+            >
               <MetalFrame
                 on={metalOn}
                 preset={metalPreset}
@@ -1031,25 +1107,23 @@ const PromptBar: React.FC<PromptBarProps> = ({
                 strength={metalStrength * (armed ? 1 : 0.35)}
                 // `rounded-lg` resolves to 10px through the shadcn radius scale.
                 radius={10}
-                ringCssPx={1.5}
+                ringCssPx={2}
+                gooey
+                paused={!armed}
                 className="flex-none"
                 style={{
                   display: 'flex',
-                  background: armed
-                    ? 'var(--pb-ink)'
-                    : 'color-mix(in srgb, var(--pb-ink) 12%, var(--pb-bg))',
-                  color: armed
-                    ? 'var(--pb-bg)'
-                    : 'color-mix(in srgb, var(--pb-ink) 55%, var(--pb-bg))'
+                  background: 'var(--pb-send-fill)',
+                  color: 'var(--pb-send-ink)'
                 }}
               >
                 <button
                   type="button"
-                  className="relative inline-grid size-8 flex-none cursor-pointer touch-manipulation place-items-center rounded-lg border-0 p-0 outline-none select-none [background:color-mix(in_srgb,var(--pb-ink)_12%,var(--pb-bg))] [color:color-mix(in_srgb,var(--pb-ink)_55%,var(--pb-bg))] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_200ms_ease,color_200ms_ease,transform_160ms_cubic-bezier(0.23,1,0.32,1)] disabled:cursor-default data-[armed]:[background:var(--pb-ink)] data-[armed]:[color:var(--pb-bg)] data-[pressed]:[transform:scale(var(--pb-press))] motion-reduce:data-[pressed]:[transform:none] [@media(pointer:coarse)]:size-9"
+                  className="relative inline-grid size-8 flex-none cursor-pointer touch-manipulation place-items-center rounded-lg border-0 p-0 outline-none select-none [background:var(--pb-send-fill)] [color:var(--pb-send-ink)] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_200ms_ease,opacity_200ms_ease] disabled:cursor-default disabled:[&>.pb-send-glyph]:opacity-55 data-[metal]:bg-transparent [@media(pointer:coarse)]:size-9"
                   disabled={!armed}
                   aria-label={busy ? 'Stop' : 'Send'}
                   data-armed={armed ? '' : undefined}
-                  data-pressed={pressed ? '' : undefined}
+                  data-metal={metalOn ? '' : undefined}
                   onMouseDown={e => e.preventDefault()}
                   onPointerDown={down}
                   onPointerUp={up}

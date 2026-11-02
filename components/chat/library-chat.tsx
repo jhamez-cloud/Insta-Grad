@@ -159,7 +159,7 @@ function RunMessage({ run, visible }: { run: ActiveRun; visible: boolean }) {
       <MessageContent>
         <MessageHeader>InstaGrad</MessageHeader>
         <Bubble variant="ghost">
-          <BubbleContent className="flex w-full max-w-[46rem] flex-col gap-5">
+          <BubbleContent className="flex w-full max-w-[50rem] flex-col gap-5">
             <div className="flex items-start gap-3 rounded-[var(--radius-control)] bg-surface-subtle/70 p-3 font-sans">
               <ThinkingOrb
                 state={working ? "solving" : failed ? "shaping" : "breathing"}
@@ -254,7 +254,7 @@ function Conversation({
     <MessageScrollerProvider autoScroll>
       <MessageScroller>
         <MessageScrollerViewport>
-          <MessageScrollerContent className="mx-auto w-full max-w-[52rem] px-4 pt-7 pb-40 sm:px-7 lg:px-10">
+          <MessageScrollerContent className="mx-auto w-full max-w-[56rem] px-4 pt-7 pb-40 sm:px-7 lg:px-10">
             <MessageScrollerItem messageId="conversation-start">
               <Marker variant="separator">
                 <MarkerIcon>
@@ -459,7 +459,7 @@ function LoadingState() {
         </div>
         <Skeleton className="h-9 w-56" />
       </div>
-      <div className="mx-auto flex w-full max-w-[52rem] flex-col gap-6 pt-10">
+      <div className="mx-auto flex w-full max-w-[56rem] flex-col gap-6 pt-10">
         <Skeleton className="h-16 w-3/5" />
         <Skeleton className="ms-auto h-20 w-2/5" />
         <Skeleton className="h-28 w-4/5" />
@@ -708,10 +708,10 @@ function LibraryChatContent({ libraryId }: { libraryId: string }) {
 
       {view === "conversation" ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-surface via-surface/96 to-transparent px-3 pt-14 pb-4 sm:px-6 lg:px-8">
-          <div className="pointer-events-auto mx-auto flex w-full max-w-[52rem] flex-col items-center gap-2">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-[56rem] flex-col items-center gap-2">
             <PromptBar
               className="w-full shadow-panel"
-              width={832}
+              width={896}
               radius={20}
               placeholder={`Ask ${library.name}…`}
               sources={promptSources}
