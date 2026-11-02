@@ -37,3 +37,10 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agentic skills
+.21st
+.agents
+.claude
+.codex
+.impeccable

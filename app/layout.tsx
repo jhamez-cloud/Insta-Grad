@@ -1,19 +1,17 @@
-import { Geist, Geist_Mono, Noto_Serif } from "next/font/google"
+import { GeistMono } from "geist/font/mono"
+import { GeistSans } from "geist/font/sans"
+import localFont from "next/font/local"
 
 import "./globals.css"
+import { RootEffects } from "@/components/shell/root-effects"
 import { ThemeProvider } from "@/components/theme-provider"
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/utils"
 
-const notoSerif = Noto_Serif({subsets:['latin'],variable:'--font-serif'});
-
-const fontSans = Geist({
-  subsets: ["latin"],
-  variable: "--font-sans",
-})
-
-const fontMono = Geist_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
+const notoSerif = localFont({
+  src: "../node_modules/@fontsource-variable/noto-serif/files/noto-serif-latin-wght-normal.woff2",
+  variable: "--font-noto-serif",
+  weight: "100 900",
+  display: "swap",
 })
 
 export default function RootLayout({
@@ -25,10 +23,18 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("antialiased", fontSans.variable, fontMono.variable, "font-serif", notoSerif.variable)}
+      className={cn(
+        "antialiased",
+        GeistSans.variable,
+        GeistMono.variable,
+        "font-serif",
+        notoSerif.variable,
+      )}
     >
-      <body>
-        <ThemeProvider>{children}</ThemeProvider>
+      <body className="min-h-svh overflow-x-hidden">
+        <ThemeProvider>
+          <RootEffects>{children}</RootEffects>
+        </ThemeProvider>
       </body>
     </html>
   )
