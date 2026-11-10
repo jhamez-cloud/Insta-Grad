@@ -10,8 +10,17 @@ import {
   UploadCloudIcon,
 } from "lucide-react"
 
-import { createLibrary, simulateUpload } from "@/lib/api"
-import type { Library, UploadItem } from "@/lib/types"
+import { createLibrary } from "@/lib/api"
+import {
+  addSelectedFiles,
+  CATEGORY_PATTERN,
+  errorMessage,
+  FILE_ACCEPT,
+  uploadSelection,
+  uploadStatusLabel,
+  type SelectedUpload,
+} from "@/components/library/upload-helpers"
+import type { Library } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -30,9 +39,7 @@ import {
 } from "@/components/ui/field"
 import Folder from "@/components/ui/Folder"
 import { Input } from "@/components/ui/input"
-import { Progress } from "@/components/ui/progress"
 import Stepper, { Step } from "@/components/ui/Stepper"
-import { Textarea } from "@/components/ui/textarea"
 
 const MAX_FOLDER_ITEMS = 6
 
@@ -59,47 +66,22 @@ const stepperStyle = {
   "--stepper-press": "brightness(.88)",
 } as React.CSSProperties
 
-function idForFile(file: File) {
-  const suffix =
-    globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)
-  return `upload-${suffix}-${file.lastModified}`
-}
-
-function toUploadItem(file: File): UploadItem {
-  return {
-    id: idForFile(file),
-    name: file.name,
-    path: file.webkitRelativePath || file.name,
-    size: file.size,
-    type: file.type || "application/octet-stream",
-    progress: 0,
-    status: "queued",
-  }
-}
-
 function formatBytes(value: number) {
   if (value < 1_000) return `${value} B`
   if (value < 1_000_000) return `${(value / 1_000).toFixed(1)} KB`
   return `${(value / 1_000_000).toFixed(1)} MB`
 }
 
-function folderEntries(files: UploadItem[]) {
+function folderEntries(files: SelectedUpload[]) {
   const visible = files.slice(
     0,
     files.length > MAX_FOLDER_ITEMS ? MAX_FOLDER_ITEMS - 1 : MAX_FOLDER_ITEMS
   )
-  const entries = visible.map((file) => file.name)
+  const entries = visible.map((item) => item.file.name)
   const remaining = files.length - visible.length
 
   if (remaining > 0) entries.push(`+${remaining} more`)
   return entries
-}
-
-function averageProgress(files: UploadItem[]) {
-  if (!files.length) return 0
-  return Math.round(
-    files.reduce((total, file) => total + file.progress, 0) / files.length
-  )
 }
 
 export function LibraryWizard() {
@@ -110,9 +92,10 @@ export function LibraryWizard() {
   const uploadControllerRef = React.useRef<AbortController | null>(null)
   const [step, setStep] = React.useState(1)
   const [name, setName] = React.useState("")
-  const [description, setDescription] = React.useState("")
-  const [files, setFiles] = React.useState<UploadItem[]>([])
+  const [category, setCategory] = React.useState("general")
+  const [files, setFiles] = React.useState<SelectedUpload[]>([])
   const [uploading, setUploading] = React.useState(false)
+  const persistedLibraryRef = React.useRef<Library | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState("")
   const [createdLibrary, setCreatedLibrary] = React.useState<Library | null>(
@@ -120,17 +103,11 @@ export function LibraryWizard() {
   )
 
   const theme = resolvedTheme === "dark" ? "dark" : "light"
-  const nameIsValid = name.trim().length >= 2
-  const uploadsComplete =
-    files.length > 0 && files.every((file) => file.status === "complete")
-  const progress = averageProgress(files)
-
-  React.useEffect(() => {
-    const input = folderInputRef.current
-    if (!input) return
-    input.setAttribute("webkitdirectory", "")
-    input.setAttribute("directory", "")
-  }, [])
+  const nameIsValid = name.trim().length >= 1 && name.trim().length <= 255
+  const categoryIsValid = CATEGORY_PATTERN.test(category.trim())
+  const uploadsComplete = files.length > 0
+  const [savedLibrary, setSavedLibrary] = React.useState<Library | null>(null)
+  const libraryCreated = savedLibrary !== null
 
   React.useEffect(() => {
     return () => uploadControllerRef.current?.abort()
@@ -144,79 +121,73 @@ export function LibraryWizard() {
     return () => globalThis.clearTimeout(timeout)
   }, [createdLibrary, router])
 
-  const addFiles = React.useCallback(
-    async (selected: File[]) => {
-      if (!selected.length) return
-
-      uploadControllerRef.current?.abort()
-      const controller = new AbortController()
-      uploadControllerRef.current = controller
-      setError("")
-      setUploading(true)
-
-      const currentKeys = new Set(
-        files.map((file) => `${file.path}:${file.size}`)
-      )
-      const incoming = selected
-        .map(toUploadItem)
-        .filter((file) => !currentKeys.has(`${file.path}:${file.size}`))
-      const combined = [...files, ...incoming]
-      setFiles(combined)
-
-      try {
-        await simulateUpload(
-          combined,
-          (nextFiles) => setFiles(nextFiles),
-          controller.signal
-        )
-      } catch (uploadError) {
-        if (
-          uploadError instanceof DOMException &&
-          uploadError.name === "AbortError"
-        )
-          return
-        setError("The files could not be prepared. Choose them again to retry.")
-        setFiles((current) =>
-          current.map((file) => ({ ...file, status: "error" }))
-        )
-      } finally {
-        if (uploadControllerRef.current === controller) setUploading(false)
-      }
-    },
-    [files]
-  )
+  const addFiles = (selected: File[]) => {
+    if (saving || uploading) return
+    const result = addSelectedFiles(files, selected)
+    setFiles(result.items)
+    setError(
+      result.unsupported.length
+        ? `Only .md, .markdown and .txt files are supported. Skipped: ${result.unsupported.slice(0, 3).join(", ")}.`
+        : ""
+    )
+  }
 
   const handleInputFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
-    void addFiles(Array.from(event.target.files ?? []))
+    addFiles(Array.from(event.target.files ?? []))
     event.target.value = ""
   }
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
-    void addFiles(Array.from(event.dataTransfer.files))
+    addFiles(Array.from(event.dataTransfer.files))
   }
 
   const removeFile = (id: string) => {
-    if (uploading) return
+    if (uploading || saving) return
     setFiles((current) => current.filter((file) => file.id !== id))
   }
 
   const saveLibrary = async () => {
-    if (!nameIsValid || !uploadsComplete || saving) return
+    if (!nameIsValid || !categoryIsValid || saving) return
     setSaving(true)
     setError("")
+    const controller = new AbortController()
+    uploadControllerRef.current = controller
 
     try {
-      const library = await createLibrary({
-        name,
-        description,
+      const library =
+        persistedLibraryRef.current ??
+        (await createLibrary({ name, files: [] }))
+      persistedLibraryRef.current = library
+      setSavedLibrary(library)
+      setUploading(true)
+      const results = await uploadSelection(
         files,
-      })
-      setCreatedLibrary(library)
-      setStep(5)
-    } catch {
-      setError("The library was not saved. Keep this page open and try again.")
+        category.trim(),
+        library.id,
+        setFiles,
+        controller.signal
+      )
+      const needsAttention = results.some(
+        (item) =>
+          item.status !== "indexed" &&
+          !(
+            item.status === "duplicate" &&
+            String(item.document?.library_id) === library.id
+          )
+      )
+      if (controller.signal.aborted || needsAttention) {
+        setError(
+          "The library is saved. Review the file results below; retry unconfirmed files or open documents to add existing duplicates."
+        )
+      } else {
+        setCreatedLibrary(library)
+        setStep(5)
+      }
+    } catch (saveError) {
+      setError(errorMessage(saveError))
     } finally {
+      setUploading(false)
       setSaving(false)
     }
   }
@@ -225,9 +196,9 @@ export function LibraryWizard() {
     step === 1
       ? !nameIsValid
       : step === 2
-        ? !uploadsComplete || uploading
+        ? !categoryIsValid || uploading
         : step === 4
-          ? saving || !nameIsValid || !uploadsComplete
+          ? saving || !nameIsValid || !categoryIsValid
           : false
 
   return (
@@ -245,7 +216,11 @@ export function LibraryWizard() {
 
       <Stepper
         step={step}
-        onStepChange={setStep}
+        onStepChange={(next) => {
+          if (!saving) setStep(next)
+        }}
+        disableStepIndicators={saving || libraryCreated}
+        backButtonProps={{ disabled: saving || libraryCreated }}
         linear
         indicator="numbers"
         transition="slide"
@@ -255,7 +230,13 @@ export function LibraryWizard() {
         accentColor="var(--primary)"
         style={stepperStyle}
         nextButtonText="Continue"
-        completeButtonText={saving ? "Saving…" : "Save library"}
+        completeButtonText={
+          saving
+            ? "Saving and indexing…"
+            : libraryCreated
+              ? "Retry unconfirmed files"
+              : "Save library"
+        }
         nextButtonProps={{
           disabled: nextDisabled,
           onClick: (event) => {
@@ -312,32 +293,19 @@ export function LibraryWizard() {
                 <Input
                   id="library-name"
                   value={name}
+                  maxLength={255}
+                  disabled={libraryCreated}
                   onChange={(event) => setName(event.target.value)}
                   placeholder="e.g. Product research"
                   autoComplete="off"
                   aria-invalid={name.length > 0 && !nameIsValid}
                 />
-                <FieldDescription>
-                  Use at least two characters.
-                </FieldDescription>
+                <FieldDescription>Use 1–255 characters.</FieldDescription>
                 {name.length > 0 && !nameIsValid ? (
-                  <FieldError>Enter a slightly longer library name.</FieldError>
+                  <FieldError>
+                    Enter a library name of 1–255 characters.
+                  </FieldError>
                 ) : null}
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="library-description">
-                  Description
-                </FieldLabel>
-                <Textarea
-                  id="library-description"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="What questions should this library help answer?"
-                  rows={4}
-                />
-                <FieldDescription>
-                  Optional. You can refine this later.
-                </FieldDescription>
               </Field>
             </FieldGroup>
           </section>
@@ -349,8 +317,8 @@ export function LibraryWizard() {
               <Folder
                 items={folderEntries(files)}
                 label={name.trim() || "New library"}
-                open={uploadsComplete}
-                peek={uploading || (files.length > 0 && !uploadsComplete)}
+                open={files.length > 0}
+                peek={uploading}
                 openOn="click"
                 draggable={false}
                 zoomOnClick={false}
@@ -363,24 +331,38 @@ export function LibraryWizard() {
               <div className="flex flex-col gap-1" aria-live="polite">
                 <p className="text-sm font-medium">
                   {uploading
-                    ? `Preparing ${files.length} ${files.length === 1 ? "file" : "files"}`
+                    ? `Indexing ${files.length} ${files.length === 1 ? "file" : "files"}`
                     : uploadsComplete
                       ? `${files.length} ${files.length === 1 ? "file" : "files"} ready`
                       : "Add the documents you want to analyze"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Files stay in this browser while the backend is mocked.
+                  Markdown and text files are uploaded and indexed when you
+                  save.
                 </p>
               </div>
-              {files.length > 0 ? (
-                <Progress
-                  value={progress}
-                  aria-label={`Upload progress ${progress}%`}
-                />
-              ) : null}
             </div>
 
             <div className="flex min-w-0 flex-col gap-4">
+              <FieldGroup>
+                <Field data-invalid={!categoryIsValid || undefined}>
+                  <FieldLabel htmlFor="upload-category">
+                    Document category
+                  </FieldLabel>
+                  <Input
+                    id="upload-category"
+                    value={category}
+                    maxLength={50}
+                    onChange={(event) =>
+                      setCategory(event.target.value.toLowerCase())
+                    }
+                    aria-invalid={!categoryIsValid}
+                  />
+                  <FieldDescription>
+                    Use 1–50 lowercase letters, digits, hyphens or underscores.
+                  </FieldDescription>
+                </Field>
+              </FieldGroup>
               <div
                 className="flex min-h-40 flex-col items-center justify-center gap-4 rounded-[var(--radius-panel)] border border-dashed border-border bg-surface p-5 text-center"
                 onDragOver={(event) => event.preventDefault()}
@@ -395,8 +377,8 @@ export function LibraryWizard() {
                 <div className="flex max-w-sm flex-col gap-1">
                   <p className="text-sm font-medium">Drop files here</p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Add individual documents or choose a whole folder while
-                    keeping its paths.
+                    Choose UTF-8 .md, .markdown or .txt files. Folder paths are
+                    shown here; the service stores each filename.
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
@@ -404,7 +386,7 @@ export function LibraryWizard() {
                     type="button"
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
+                    disabled={uploading || saving}
                   >
                     <FileIcon data-icon="inline-start" />
                     Choose files
@@ -414,7 +396,7 @@ export function LibraryWizard() {
                     size="sm"
                     variant="outline"
                     onClick={() => folderInputRef.current?.click()}
-                    disabled={uploading}
+                    disabled={uploading || saving}
                   >
                     <FolderUpIcon data-icon="inline-start" />
                     Choose folder
@@ -426,15 +408,21 @@ export function LibraryWizard() {
                 ref={fileInputRef}
                 className="sr-only"
                 type="file"
+                accept={FILE_ACCEPT}
                 multiple
                 onChange={handleInputFiles}
                 tabIndex={-1}
                 aria-hidden="true"
               />
               <input
-                ref={folderInputRef}
+                ref={(input) => {
+                  folderInputRef.current = input
+                  input?.setAttribute("webkitdirectory", "")
+                  input?.setAttribute("directory", "")
+                }}
                 className="sr-only"
                 type="file"
+                accept={FILE_ACCEPT}
                 multiple
                 onChange={handleInputFiles}
                 tabIndex={-1}
@@ -447,7 +435,7 @@ export function LibraryWizard() {
                     <CardTitle>Selected evidence</CardTitle>
                     <CardDescription>
                       {formatBytes(
-                        files.reduce((total, file) => total + file.size, 0)
+                        files.reduce((total, item) => total + item.file.size, 0)
                       )}{" "}
                       total
                     </CardDescription>
@@ -468,22 +456,21 @@ export function LibraryWizard() {
                           </span>
                           <Badge
                             variant={
-                              file.status === "error"
+                              file.status === "error" ||
+                              file.status === "rejected"
                                 ? "destructive"
                                 : "secondary"
                             }
                           >
-                            {file.status === "complete"
-                              ? "Ready"
-                              : `${file.progress}%`}
+                            {uploadStatusLabel(file, savedLibrary?.id)}
                           </Badge>
                           <Button
                             type="button"
                             variant="ghost"
                             size="xs"
-                            disabled={uploading}
+                            disabled={uploading || saving}
                             onClick={() => removeFile(file.id)}
-                            aria-label={`Remove ${file.name}`}
+                            aria-label={`Remove ${file.file.name}`}
                           >
                             Remove
                           </Button>
@@ -510,17 +497,15 @@ export function LibraryWizard() {
                 Review the evidence set
               </h2>
               <p className="text-sm leading-6 text-muted-foreground">
-                InstaGrad will cite these files in chat and use them to build
-                decision flows.
+                The service retrieves evidence from this library together with
+                software policies and returns citations with each answer.
               </p>
             </div>
             <div className="grid gap-4 sm:grid-cols-3">
               <Card size="sm" className="sm:col-span-2">
                 <CardHeader>
                   <CardTitle>{name.trim()}</CardTitle>
-                  <CardDescription>
-                    {description.trim() || "No description added."}
-                  </CardDescription>
+                  <CardDescription>Category: {category.trim()}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ul className="flex flex-col gap-2">
@@ -537,7 +522,7 @@ export function LibraryWizard() {
                           {file.path}
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
-                          {formatBytes(file.size)}
+                          {formatBytes(file.file.size)}
                         </span>
                       </li>
                     ))}
@@ -552,7 +537,7 @@ export function LibraryWizard() {
               <Card size="sm">
                 <CardHeader>
                   <CardTitle>Library size</CardTitle>
-                  <CardDescription>Ready for analysis</CardDescription>
+                  <CardDescription>Selected for indexing</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-2">
                   <strong className="font-heading text-4xl font-medium">
@@ -560,7 +545,7 @@ export function LibraryWizard() {
                   </strong>
                   <span className="text-sm text-muted-foreground">
                     {formatBytes(
-                      files.reduce((total, file) => total + file.size, 0)
+                      files.reduce((total, item) => total + item.file.size, 0)
                     )}
                   </span>
                 </CardContent>
@@ -579,11 +564,63 @@ export function LibraryWizard() {
                 Create {name.trim()}
               </h2>
               <p className="text-sm leading-6 text-muted-foreground">
-                This saves {files.length}{" "}
+                This creates the library and indexes {files.length}{" "}
                 {files.length === 1 ? "file" : "files"} and opens a new analysis
                 workspace. You can add more evidence later.
               </p>
             </div>
+            {saving ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => uploadControllerRef.current?.abort()}
+              >
+                Stop waiting for upload
+              </Button>
+            ) : null}
+            {files.length > 0 ? (
+              <ul
+                className="flex w-full max-w-lg flex-col gap-3 text-start"
+                aria-live="polite"
+              >
+                {files.map((item) => (
+                  <li key={item.id} className="flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="min-w-0 text-sm break-all">
+                        {item.path}
+                      </span>
+                      <Badge
+                        variant={
+                          item.status === "error" || item.status === "rejected"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                      >
+                        {uploadStatusLabel(item, savedLibrary?.id)}
+                      </Badge>
+                    </div>
+                    {item.detail ? (
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {item.detail}
+                      </p>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {libraryCreated && !saving ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  router.push(
+                    `/libraries/${persistedLibraryRef.current!.id}/documents`
+                  )
+                }
+              >
+                Open library documents
+              </Button>
+            ) : null}
             {error ? (
               <p role="alert" className="text-sm text-destructive">
                 {error}
