@@ -1,27 +1,43 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
-  ArrowRightIcon,
-  CheckIcon,
+  CircleAlertIcon,
   FileTextIcon,
   GitBranchIcon,
+  HistoryIcon,
   LibraryBigIcon,
   MessageSquareTextIcon,
-  SearchIcon,
-  ShieldCheckIcon,
-  SparklesIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
 } from "lucide-react"
 import { useReducedMotion } from "motion/react"
 import { ThinkingOrb } from "thinking-orbs"
 
 import {
+  ApiError,
+  createSession,
+  getDocument,
   getLibrary,
-  listMessages,
-  streamLibraryChat,
+  getSession,
+  listAllSessions,
+  query,
   subscribeToLibraries,
 } from "@/lib/api"
-import type { Library, Message } from "@/lib/types"
+import type {
+  DocumentDetail,
+  Library,
+  Message,
+  MessageSource,
+  QueryFailure,
+  SessionOut,
+} from "@/lib/types"
+import {
+  readTranscript,
+  saveTranscript,
+} from "@/components/chat/chat-transcript"
 import {
   Attachment,
   AttachmentContent,
@@ -29,10 +45,37 @@ import {
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
+  AttachmentTrigger,
 } from "@/components/ui/attachment"
 import { Badge } from "@/components/ui/badge"
-import { Bubble, BubbleContent } from "@/components/ui/bubble"
+import { Bubble, BubbleContent, BubbleReactions } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import { Marker, MarkerContent, MarkerIcon } from "@/components/ui/marker"
 import {
   Message as MessageRow,
@@ -48,68 +91,212 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller"
-import PromptBar, { type PromptBarSource } from "@/components/ui/PromptBar"
+import PromptBar from "@/components/ui/PromptBar"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import ThoughtLine from "@/components/ui/ThoughtLine"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Trace, TraceIcon, TraceLine, TraceTitle } from "@/components/ui/trace"
 import { cn } from "@/lib/utils"
 
-type View = "conversation" | "decisions"
-type RunStatus = "working" | "complete" | "stopped" | "error"
-
+type View = "conversation" | "evidence"
 interface ActiveRun {
   id: string
-  content: string
-  steps: string[]
-  status: RunStatus
-  sources?: Message["sources"]
+  queryId: string
+  prompt: string
+  status: "working" | "stopped" | "error"
+  error?: string
 }
+const SESSION_KEY = "instagrad:policy:selected-session:"
+const NEW_CONVERSATION = "new-conversation"
 
-const views: Array<{
-  id: View
-  label: string
-  icon: typeof MessageSquareTextIcon
-}> = [
-  { id: "conversation", label: "Conversation", icon: MessageSquareTextIcon },
-  { id: "decisions", label: "Decision flow", icon: GitBranchIcon },
-]
-
-function usePageVisibility() {
-  return React.useSyncExternalStore(
-    (callback) => {
-      document.addEventListener("visibilitychange", callback)
-      return () => document.removeEventListener("visibilitychange", callback)
-    },
-    () => document.visibilityState === "visible",
-    () => true
+function errorMessage(error: unknown) {
+  return error instanceof Error
+    ? error.message
+    : "The request could not be completed."
+}
+function queryFailure(cause: unknown): QueryFailure {
+  const status = cause instanceof ApiError ? cause.status : undefined
+  if (
+    status === 408 ||
+    status === 504 ||
+    (cause instanceof Error && cause.name === "TimeoutError")
   )
+    return {
+      kind: "timeout",
+      message:
+        "The service did not return an answer in time. Please try again.",
+      status,
+    }
+  if (status === 0 || status === 502 || status === 503)
+    return { kind: "unavailable", message: errorMessage(cause), status }
+  return {
+    kind:
+      cause instanceof ApiError
+        ? (cause.kind ?? "response_failed")
+        : "response_failed",
+    message: errorMessage(cause),
+    status,
+  }
 }
-
+const failureLabels = {
+  unavailable: "Service unavailable",
+  timeout: "Request timed out",
+  response_failed: "Response could not load",
+}
 function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value))
 }
-
-function makeClientMessage(libraryId: string, content: string): Message {
-  return {
-    id: `local-${Date.now()}`,
-    libraryId,
-    role: "user",
-    content,
-    createdAt: new Date().toISOString(),
-    status: "complete",
+function sessionStorageId(libraryId: string): number | null {
+  try {
+    const value = Number(
+      new URL(window.location.href).searchParams.get("session") ??
+        window.localStorage.getItem(`${SESSION_KEY}${libraryId}`)
+    )
+    return Number.isSafeInteger(value) && value > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+function rememberSession(libraryId: string, sessionId: number | null) {
+  try {
+    if (sessionId === null)
+      window.localStorage.removeItem(`${SESSION_KEY}${libraryId}`)
+    else
+      window.localStorage.setItem(
+        `${SESSION_KEY}${libraryId}`,
+        String(sessionId)
+      )
+  } catch {
+    /* Session selection still works without browser storage. */
   }
 }
 
-function MessageSources({ message }: { message: Message }) {
-  if (!message.sources?.length) return null
+function SourceDialog({
+  source,
+  onClose,
+}: {
+  source: MessageSource | null
+  onClose: () => void
+}) {
+  const [document, setDocument] = React.useState<DocumentDetail | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState("")
+  const [reload, setReload] = React.useState(0)
+  React.useEffect(() => {
+    if (!source?.documentId) return
+    const controller = new AbortController()
+    getDocument(source.documentId, controller.signal)
+      .then((nextDocument) => {
+        if (!controller.signal.aborted) setDocument(nextDocument)
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setError(errorMessage(cause))
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
+    return () => controller.abort()
+  }, [source, reload])
+  return (
+    <Dialog
+      open={Boolean(source)}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="max-h-[85svh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{source?.fileName ?? "Source document"}</DialogTitle>
+          <DialogDescription>
+            Original document and the excerpt retrieved for this answer.
+          </DialogDescription>
+        </DialogHeader>
+        {source ? (
+          <>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="outline">
+                {source.source === "seed"
+                  ? "Software policy"
+                  : "Uploaded document"}
+              </Badge>
+              {source.category ? (
+                <Badge variant="secondary">{source.category}</Badge>
+              ) : null}
+              {typeof source.similarity === "number" ? (
+                <Badge variant="outline">
+                  Similarity {source.similarity.toFixed(3)}
+                </Badge>
+              ) : null}
+            </div>
+            <p className="font-mono text-xs break-all text-muted-foreground">
+              Chunk {source.chunkId ?? source.id}
+            </p>
+            <blockquote className="border-s-2 border-primary ps-4 leading-6 whitespace-pre-wrap">
+              {source.excerpt}
+            </blockquote>
+          </>
+        ) : null}
+        {loading ? (
+          <Skeleton className="h-32 w-full" />
+        ) : error ? (
+          <div role="alert">
+            <p>{error}</p>
+            <Button
+              className="mt-3"
+              variant="outline"
+              onClick={() => {
+                setLoading(true)
+                setError("")
+                setReload((value) => value + 1)
+              }}
+            >
+              Retry loading source
+            </Button>
+          </div>
+        ) : document ? (
+          <section>
+            <h3 className="mb-2 font-heading text-lg">Full document</h3>
+            <p className="mb-3 text-xs text-muted-foreground">
+              {document.filename} · {document.chunk_count} indexed chunks
+            </p>
+            <pre className="font-sans text-sm leading-6 wrap-break-word whitespace-pre-wrap">
+              {document.content}
+            </pre>
+          </section>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
 
+function MessageSources({
+  message,
+  onSource,
+}: {
+  message: Message
+  onSource: (source: MessageSource) => void
+}) {
+  if (!message.sources?.length) return null
   return (
     <AttachmentGroup aria-label="Sources used in this answer">
       {message.sources.map((source) => (
-        <Attachment key={source.id} size="sm">
+        <Attachment key={source.id} size="sm" className="max-w-72">
           <AttachmentMedia>
             <FileTextIcon aria-hidden="true" />
           </AttachmentMedia>
@@ -117,15 +304,30 @@ function MessageSources({ message }: { message: Message }) {
             <AttachmentTitle>{source.fileName}</AttachmentTitle>
             <AttachmentDescription>{source.excerpt}</AttachmentDescription>
           </AttachmentContent>
+          <AttachmentTrigger
+            aria-label={`Read ${source.fileName}, chunk ${source.chunkId ?? source.id}`}
+            onClick={() => onSource(source)}
+          />
         </Attachment>
       ))}
     </AttachmentGroup>
   )
 }
-
-function ChatMessage({ message }: { message: Message }) {
+function ChatMessage({
+  message,
+  onSource,
+  onRetry,
+  busy,
+}: {
+  message: Message
+  onSource: (source: MessageSource) => void
+  onRetry: () => void
+  busy: boolean
+}) {
   const user = message.role === "user"
-
+  const [showFailure, setShowFailure] = React.useState(false)
+  const failure = user ? message.failure : undefined
+  const failureId = `query-failure-${message.id}`
   return (
     <MessageRow align={user ? "end" : "start"}>
       <MessageContent>
@@ -133,595 +335,831 @@ function ChatMessage({ message }: { message: Message }) {
         <Bubble
           align={user ? "end" : "start"}
           variant={user ? "tinted" : "ghost"}
+          className={cn(failure && "mb-8 pointer:coarse:mb-10")}
         >
-          <BubbleContent>
+          <BubbleContent className={cn(failure && "pb-5")}>
             <p className="whitespace-pre-wrap">{message.content}</p>
           </BubbleContent>
+          {failure ? (
+            <BubbleReactions side="bottom" align="end" className="p-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    variant="destructive"
+                    asChild
+                    className="relative size-6 cursor-pointer rounded-full p-0 pointer:coarse:overflow-visible pointer:coarse:after:absolute pointer:coarse:after:-inset-3 pointer:coarse:after:content-['']"
+                  >
+                    <button
+                      type="button"
+                      data-query-failure={failure.kind}
+                      aria-label={`Query failed: ${failureLabels[failure.kind]}. ${showFailure ? "Hide" : "Show"} details`}
+                      aria-expanded={showFailure}
+                      aria-controls={failureId}
+                      onFocus={(event) => {
+                        if (event.currentTarget.matches(":focus-visible"))
+                          setShowFailure(true)
+                      }}
+                      onClick={() => setShowFailure((open) => !open)}
+                    >
+                      <CircleAlertIcon aria-hidden="true" />
+                    </button>
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {failureLabels[failure.kind]}: {failure.message}
+                </TooltipContent>
+              </Tooltip>
+            </BubbleReactions>
+          ) : null}
         </Bubble>
-        <MessageSources message={message} />
+        {failure ? (
+          <div
+            id={failureId}
+            hidden={!showFailure}
+            className="max-w-[62ch] self-end"
+          >
+            <p className="text-sm text-destructive">
+              {failureLabels[failure.kind]}: {failure.message}
+            </p>
+            <Button
+              variant="outline"
+              size="xs"
+              className="mt-2"
+              disabled={busy}
+              onClick={onRetry}
+            >
+              Retry question
+            </Button>
+          </div>
+        ) : null}
+        <MessageSources message={message} onSource={onSource} />
         <MessageFooter>
           {formatTime(message.createdAt)}
-          {message.status === "stopped" ? " · stopped" : null}
+          {message.model ? ` · ${message.model}` : ""}
         </MessageFooter>
       </MessageContent>
     </MessageRow>
   )
 }
-
-function RunMessage({ run, visible }: { run: ActiveRun; visible: boolean }) {
-  const reduceMotion = useReducedMotion()
+function RunMessage({ run, onRetry }: { run: ActiveRun; onRetry: () => void }) {
+  const reduced = useReducedMotion()
   const working = run.status === "working"
-  const stopped = run.status === "stopped"
-  const failed = run.status === "error"
-
   return (
     <MessageRow align="start">
       <MessageContent>
         <MessageHeader>InstaGrad</MessageHeader>
-        <Bubble variant="ghost">
-          <BubbleContent className="flex w-full max-w-[50rem] flex-col gap-5">
-            <div className="flex items-start gap-3 rounded-[var(--radius-control)] bg-surface-subtle/70 p-3 font-sans">
-              <ThinkingOrb
-                state={working ? "solving" : failed ? "shaping" : "breathing"}
-                size={32}
-                theme="auto"
-                paused={!working || !visible || Boolean(reduceMotion)}
-                aria-label={working ? "Analyzing library" : "Analysis complete"}
-              />
-              <ThoughtLine
-                label="Reading across the library"
-                doneLabel={
-                  failed
-                    ? "Analysis interrupted"
-                    : stopped
-                      ? "Stopped after"
-                      : "Thought for"
-                }
-                steps={run.steps}
-                working={working}
-                color="var(--foreground)"
-                glyphColor="var(--primary)"
-                fontSize={14}
-                settleDuration={250}
-                shimmer={!reduceMotion}
-              />
-            </div>
-
-            {run.content ? (
-              <p className="font-serif text-[1.02rem] leading-7 whitespace-pre-wrap">
-                {run.content}
-              </p>
-            ) : null}
-
-            {run.steps.length > 0 && !working ? (
-              <Trace aria-label="Analysis trace">
-                {run.steps.map((step, index) => (
-                  <TraceLine key={`${index}-${step}`}>
-                    <TraceIcon>
-                      <CheckIcon aria-hidden="true" />
-                    </TraceIcon>
-                    <TraceTitle>{step}</TraceTitle>
-                  </TraceLine>
-                ))}
+        <Bubble variant="ghost" className={cn(working && "w-full")}>
+          <BubbleContent className={cn(working && "w-full")}>
+            {working ? (
+              <Trace aria-label="Answer request status" className="py-1">
+                <TraceLine className="w-full gap-3">
+                  <TraceIcon className="size-10">
+                    <ThinkingOrb
+                      size={32}
+                      state="solving"
+                      theme="auto"
+                      paused={Boolean(reduced)}
+                      aria-label="Waiting for answer"
+                    />
+                  </TraceIcon>
+                  <TraceTitle
+                    role="status"
+                    className="overflow-visible whitespace-normal"
+                  >
+                    Waiting for the policy service to retrieve sources and
+                    prepare an answer…
+                  </TraceTitle>
+                </TraceLine>
               </Trace>
-            ) : null}
+            ) : (
+              <div
+                role={run.status === "error" ? "alert" : "status"}
+                className="flex flex-col gap-3"
+              >
+                <p>
+                  {run.error ?? "Request canceled. No answer was received."}
+                </p>
+                <Button variant="outline" size="sm" onClick={onRetry}>
+                  Retry question
+                </Button>
+              </div>
+            )}
           </BubbleContent>
         </Bubble>
-
-        {run.sources?.length ? (
-          <MessageSources
-            message={{
-              id: run.id,
-              libraryId: "",
-              role: "assistant",
-              content: run.content,
-              createdAt: new Date().toISOString(),
-              status: run.status === "complete" ? "complete" : "stopped",
-              sources: run.sources,
-            }}
-          />
-        ) : null}
-        <MessageFooter aria-live="polite">
-          {working
-            ? "Streaming response"
-            : stopped
-              ? "Response stopped"
-              : failed
-                ? "Response failed"
-                : "Complete"}
-        </MessageFooter>
       </MessageContent>
     </MessageRow>
   )
 }
 
-function Conversation({
+function EvidenceFlow({
   library,
   messages,
-  run,
-  visible,
-  onPrompt,
+  onSource,
 }: {
   library: Library
   messages: Message[]
-  run: ActiveRun | null
-  visible: boolean
-  onPrompt: (prompt: string) => void
+  onSource: (source: MessageSource) => void
 }) {
-  const empty = messages.length === 0 && !run
-
-  return (
-    <MessageScrollerProvider autoScroll>
-      <MessageScroller>
-        <MessageScrollerViewport>
-          <MessageScrollerContent className="mx-auto w-full max-w-[56rem] px-4 pt-7 pb-40 sm:px-7 lg:px-10">
-            <MessageScrollerItem messageId="conversation-start">
-              <Marker variant="separator">
-                <MarkerIcon>
-                  <LibraryBigIcon aria-hidden="true" />
-                </MarkerIcon>
-                <MarkerContent>
-                  Ask across {library.fileCount}{" "}
-                  {library.fileCount === 1 ? "file" : "files"}
-                </MarkerContent>
-              </Marker>
-            </MessageScrollerItem>
-
-            {empty ? (
-              <MessageScrollerItem messageId="welcome">
-                <MessageRow align="start">
-                  <MessageContent>
-                    <MessageHeader>InstaGrad</MessageHeader>
-                    <Bubble variant="ghost">
-                      <BubbleContent>
-                        <p className="max-w-[62ch] font-serif text-[1.05rem] leading-7">
-                          I’m ready to compare claims, trace evidence, and turn
-                          this library into a decision you can inspect.
-                        </p>
-                      </BubbleContent>
-                    </Bubble>
-                    <div className="mt-4 flex flex-wrap gap-2 font-sans">
-                      {[
-                        "What does this evidence support?",
-                        "Where do the sources disagree?",
-                        "Summarize the strongest claim",
-                      ].map((suggestion) => (
-                        <Button
-                          key={suggestion}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-auto rounded-full py-1.5 text-xs font-normal"
-                          onClick={() => onPrompt(suggestion)}
-                        >
-                          {suggestion}
-                        </Button>
-                      ))}
-                    </div>
-                  </MessageContent>
-                </MessageRow>
-              </MessageScrollerItem>
-            ) : null}
-
-            {messages.map((message) => (
-              <MessageScrollerItem
-                key={message.id}
-                messageId={message.id}
-                scrollAnchor={message.role === "user"}
-              >
-                <ChatMessage message={message} />
-              </MessageScrollerItem>
-            ))}
-
-            {run ? (
-              <MessageScrollerItem messageId={run.id}>
-                <RunMessage run={run} visible={visible} />
-              </MessageScrollerItem>
-            ) : null}
-          </MessageScrollerContent>
-        </MessageScrollerViewport>
-        <MessageScrollerButton />
-      </MessageScroller>
-    </MessageScrollerProvider>
-  )
-}
-
-function DecisionFlow({ library }: { library: Library }) {
-  const leadingFiles = library.files.slice(0, 3)
-  const steps = [
-    {
-      title: "Frame the question",
-      summary: `Define the decision against the scope of ${library.name}, not against a generic benchmark.`,
-      evidence: [
-        `${library.fileCount} source files available`,
-        "Question intent and constraints",
-      ],
-      confidence: "High confidence",
-      icon: SearchIcon,
-    },
-    {
-      title: "Reconcile the evidence",
-      summary:
-        "Compare repeated claims, contradictions, and missing context before ranking any option.",
-      evidence:
-        leadingFiles.length > 0
-          ? leadingFiles.map((file) => file.name)
-          : ["No files available yet"],
-      confidence:
-        leadingFiles.length > 1 ? "High confidence" : "Needs more evidence",
-      icon: GitBranchIcon,
-    },
-    {
-      title: "Test the recommendation",
-      summary:
-        "Challenge the preferred path against cost, adoption, reversibility, and the strongest counterargument.",
-      evidence: [
-        "Implementation risk",
-        "Success threshold",
-        "Counter-evidence",
-      ],
-      confidence: "Measured confidence",
-      icon: ShieldCheckIcon,
-    },
-    {
-      title: "Stage the decision",
-      summary:
-        "Start with a bounded pilot, record the result, then reopen the broader choice with new evidence.",
-      evidence: ["Pilot scope", "Review checkpoint", "Owner and next action"],
-      confidence: "Recommended path",
-      icon: SparklesIcon,
-    },
-  ]
-
+  const answer = messages.findLast((message) => message.role === "assistant")
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[58rem] flex-col gap-8 px-4 pt-8 pb-28 sm:px-7 lg:px-10 lg:pt-12">
-        <div className="max-w-[44rem]">
-          <Badge variant="secondary">Decision model</Badge>
-          <h2 className="mt-4 font-heading text-3xl leading-tight tracking-[-0.035em] sm:text-4xl">
-            A layered path from documents to action
+      <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 pb-12 sm:px-7 lg:px-10">
+        <div>
+          <Badge variant="secondary">Retrieved evidence</Badge>
+          <h2 className="mt-4 font-heading text-3xl">
+            From question to grounded answer
           </h2>
-          <p className="mt-3 max-w-[64ch] font-sans leading-7 text-muted-foreground">
-            The flow keeps evidence, uncertainty, and the next reversible step
-            visible instead of hiding them behind a single answer.
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Search combines {library.name} with software policies. Category
+            filters apply to uploaded documents; policies are searched across
+            categories.
           </p>
         </div>
-
-        <ol
-          className="relative flex flex-col"
-          aria-label="Decision analysis steps"
-        >
-          {steps.map((step, index) => {
-            const Icon = step.icon
-            return (
-              <li
-                key={step.title}
-                className="relative grid grid-cols-[2.75rem_minmax(0,1fr)] gap-4 pb-8 last:pb-0 sm:grid-cols-[3.5rem_minmax(0,1fr)] sm:gap-6"
+        {!answer ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <GitBranchIcon />
+              </EmptyMedia>
+              <EmptyTitle>No answer to inspect yet</EmptyTitle>
+              <EmptyDescription>
+                Ask a question in the conversation to see its retrieved
+                evidence.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <>
+            <Trace aria-label="Retrieval results">
+              <TraceLine>
+                <TraceIcon>
+                  <LibraryBigIcon />
+                </TraceIcon>
+                <TraceTitle>Selected library: {library.name}</TraceTitle>
+              </TraceLine>
+              <TraceLine>
+                <TraceIcon>
+                  <FileTextIcon />
+                </TraceIcon>
+                <TraceTitle>
+                  {answer.sources?.length ?? 0} retrieved excerpts ·{" "}
+                  {answer.model}
+                </TraceTitle>
+              </TraceLine>
+            </Trace>
+            <p className="max-w-[66ch] font-serif leading-7 whitespace-pre-wrap">
+              {answer.content}
+            </p>
+            {answer.sources?.length ? (
+              <ol
+                className="flex flex-col gap-5"
+                aria-label="Retrieved source excerpts"
               >
-                {index < steps.length - 1 ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute start-[1.34rem] top-11 bottom-0 w-px bg-border sm:start-[1.72rem]"
-                  />
-                ) : null}
-                <span className="relative grid size-11 place-items-center rounded-full border border-border bg-surface-raised text-foreground shadow-sm sm:size-14">
-                  <Icon aria-hidden="true" className="size-5 sm:size-6" />
-                  <span className="absolute -end-1 -top-1 grid size-5 place-items-center rounded-full bg-primary font-mono text-[0.65rem] font-semibold text-primary-foreground">
-                    {index + 1}
-                  </span>
-                </span>
-                <div className="min-w-0 border-b border-border pb-8 last:border-0 sm:pb-10">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <h3 className="font-heading text-xl font-medium tracking-[-0.02em] sm:text-2xl">
-                      {step.title}
-                    </h3>
-                    <Badge
-                      variant={
-                        index === steps.length - 1 ? "default" : "outline"
-                      }
+                {answer.sources.map((source, index) => (
+                  <li key={source.id} className="border-b border-border pb-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-heading text-lg">
+                        {index + 1}. {source.fileName}
+                      </h3>
+                      <Badge variant="outline">
+                        {source.source === "seed"
+                          ? "Software policy"
+                          : "Library document"}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 whitespace-pre-wrap">
+                      {source.excerpt}
+                    </p>
+                    <p className="mt-2 font-mono text-xs break-all text-muted-foreground">
+                      {source.category} · {source.chunkId}
+                      {typeof source.similarity === "number"
+                        ? ` · similarity ${source.similarity.toFixed(3)}`
+                        : ""}
+                    </p>
+                    <Button
+                      className="mt-3"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onSource(source)}
                     >
-                      {step.confidence}
-                    </Badge>
-                  </div>
-                  <p className="mt-2 max-w-[66ch] font-sans leading-6 text-muted-foreground">
-                    {step.summary}
-                  </p>
-                  <Trace className="mt-4" aria-label={`${step.title} evidence`}>
-                    {step.evidence.map((evidence) => (
-                      <TraceLine key={evidence}>
-                        <TraceIcon>
-                          <FileTextIcon aria-hidden="true" />
-                        </TraceIcon>
-                        <TraceTitle>{evidence}</TraceTitle>
-                      </TraceLine>
-                    ))}
-                  </Trace>
-                </div>
-              </li>
-            )
-          })}
-        </ol>
-      </div>
-    </div>
-  )
-}
-
-function LoadingState() {
-  return (
-    <div
-      className="flex h-full flex-col gap-6 p-6 lg:p-10"
-      aria-label="Loading library"
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-7 w-52" />
-          <Skeleton className="h-4 w-36" />
-        </div>
-        <Skeleton className="h-9 w-56" />
-      </div>
-      <div className="mx-auto flex w-full max-w-[56rem] flex-col gap-6 pt-10">
-        <Skeleton className="h-16 w-3/5" />
-        <Skeleton className="ms-auto h-20 w-2/5" />
-        <Skeleton className="h-28 w-4/5" />
+                      Read original document
+                    </Button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                The service returned no supporting excerpts for this question.
+              </p>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
 }
 
 function LibraryChatContent({ libraryId }: { libraryId: string }) {
+  const router = useRouter()
   const [library, setLibrary] = React.useState<Library | null>(null)
+  const [sessions, setSessions] = React.useState<SessionOut[]>([])
+  const [sessionId, setSessionId] = React.useState<number | null>(null)
   const [messages, setMessages] = React.useState<Message[]>([])
   const [run, setRun] = React.useState<ActiveRun | null>(null)
   const [view, setView] = React.useState<View>("conversation")
+  const [source, setSource] = React.useState<MessageSource | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState("")
+  const [notice, setNotice] = React.useState("")
+  const [topK, setTopK] = React.useState(3)
+  const [category, setCategory] = React.useState("")
+  const [reload, setReload] = React.useState(0)
   const abortRef = React.useRef<AbortController | null>(null)
-  const visible = usePageVisibility()
+  const busyRef = React.useRef(false)
+  const mounted = React.useRef(true)
   const busy = run?.status === "working"
 
   React.useEffect(() => {
-    let cancelled = false
-
-    Promise.all([getLibrary(libraryId), listMessages(libraryId)])
-      .then(([nextLibrary, nextMessages]) => {
-        if (cancelled) return
-        if (!nextLibrary) {
-          setError(
-            "This library could not be found. Choose another library from the navigation."
+    mounted.current = true
+    const controller = new AbortController()
+    Promise.all([
+      getLibrary(libraryId, controller.signal),
+      listAllSessions(controller.signal),
+    ])
+      .then(async ([nextLibrary, allSessions]) => {
+        if (controller.signal.aborted) return
+        if (!nextLibrary)
+          throw new Error(
+            "This library could not be found. Choose another library."
           )
-          return
+        const matching = allSessions.filter(
+          (session) => String(session.library_id) === libraryId
+        )
+        const remembered = sessionStorageId(libraryId)
+        const selected =
+          matching.find((session) => session.id === remembered) ?? matching[0]
+        if (selected) {
+          const checked = await getSession(selected.id, controller.signal)
+          if (controller.signal.aborted) return
+          if (String(checked.library_id) !== libraryId)
+            throw new Error(
+              "The session's selected library changed. Refresh to choose a session."
+            )
+          setSessionId(checked.id)
+          setMessages(readTranscript(checked.id, libraryId))
+        } else {
+          setSessionId(null)
+          setMessages([])
         }
         setLibrary(nextLibrary)
-        setMessages(nextMessages)
+        setSessions(matching)
       })
-      .catch(() => {
-        if (!cancelled)
-          setError(
-            "The library could not be loaded. Refresh the page to try again."
-          )
+      .catch((cause) => {
+        if (!controller.signal.aborted) setError(errorMessage(cause))
       })
       .finally(() => {
-        if (!cancelled) setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       })
-
     const unsubscribe = subscribeToLibraries(() => {
-      void getLibrary(libraryId)
+      getLibrary(libraryId, controller.signal)
         .then((nextLibrary) => {
-          if (cancelled) return
+          if (controller.signal.aborted) return
           setLibrary(nextLibrary)
-          setError(
-            nextLibrary
-              ? ""
-              : "This library could not be found. Choose another library from the navigation."
-          )
-          if (!nextLibrary) abortRef.current?.abort()
+          if (!nextLibrary) {
+            abortRef.current?.abort()
+            setError("This library has been deleted. Choose another library.")
+          }
         })
-        .catch(() => {
-          if (!cancelled)
-            setError(
-              "The library could not be loaded. Refresh the page to try again."
-            )
+        .catch((cause) => {
+          if (!controller.signal.aborted) setError(errorMessage(cause))
         })
     })
-
     return () => {
-      cancelled = true
-      unsubscribe()
+      mounted.current = false
+      controller.abort()
       abortRef.current?.abort()
+      unsubscribe()
     }
-  }, [libraryId])
+  }, [libraryId, reload])
 
-  const commitRun = React.useCallback(() => {
-    if (!run?.content) return
-    setMessages((current) => [
-      ...current,
-      {
-        id: run.id,
-        libraryId,
-        role: "assistant",
-        content: run.content,
-        createdAt: new Date().toISOString(),
-        status: run.status === "complete" ? "complete" : "stopped",
-        sources: run.sources,
-      },
-    ])
-  }, [libraryId, run])
-
-  const handleSend = React.useCallback(
-    async (text: string) => {
-      const prompt = text.trim()
-      if (!prompt || busy) return
-
-      commitRun()
-      const userMessage = makeClientMessage(libraryId, prompt)
-      const controller = new AbortController()
-      abortRef.current = controller
-      setMessages((current) => [...current, userMessage])
-      setRun({
-        id: `run-${Date.now()}`,
-        content: "",
-        steps: [],
-        status: "working",
-      })
-      setView("conversation")
-
-      let content = ""
-      try {
-        for await (const event of streamLibraryChat({
-          libraryId,
-          prompt,
-          signal: controller.signal,
-        })) {
-          if (event.type === "thought") {
-            setRun((current) =>
-              current && !current.steps.includes(event.step.label)
-                ? { ...current, steps: [...current.steps, event.step.label] }
-                : current
-            )
-          }
-          if (event.type === "token") {
-            content += event.value
-            setRun((current) => (current ? { ...current, content } : current))
-          }
-          if (event.type === "done") {
-            setRun((current) =>
-              current
-                ? {
-                    ...current,
-                    content: event.message.content,
-                    sources: event.message.sources,
-                    status: "complete",
-                  }
-                : current
-            )
-          }
-        }
-      } catch (streamError) {
-        const stopped =
-          streamError instanceof DOMException &&
-          streamError.name === "AbortError"
-        setRun((current) =>
-          current
-            ? {
-                ...current,
-                content:
-                  content ||
-                  (stopped
-                    ? "The response was stopped before the first passage was written."
-                    : "The response could not be completed."),
-                status: stopped ? "stopped" : "error",
-              }
-            : current
-        )
-      } finally {
-        abortRef.current = null
-      }
-    },
-    [busy, commitRun, libraryId]
-  )
-
-  const stop = React.useCallback(() => {
-    abortRef.current?.abort()
-  }, [])
-
-  if (loading) return <LoadingState />
-
-  if (error || !library) {
-    return (
-      <div className="grid min-h-[calc(100svh-4rem)] place-items-center px-6 text-center lg:min-h-svh">
-        <div className="max-w-md rounded-[var(--radius-panel)] border border-border bg-surface-raised p-7 shadow-panel">
-          <LibraryBigIcon
-            aria-hidden="true"
-            className="mx-auto size-8 text-muted-foreground"
-          />
-          <h1 className="mt-4 font-heading text-2xl">Library unavailable</h1>
-          <p className="mt-2 font-sans leading-6 text-muted-foreground">
-            {error}
-          </p>
-        </div>
-      </div>
+  function store(nextSessionId: number, nextMessages: Message[]) {
+    setMessages(nextMessages)
+    if (!saveTranscript(nextSessionId, nextMessages))
+      setNotice(
+        "This browser could not save the conversation. Keep this page open to retain it."
+      )
+  }
+  function chooseSession(value: string) {
+    if (busyRef.current) return
+    const id = value ? Number(value) : null
+    setSessionId(id)
+    rememberSession(libraryId, id)
+    router.replace(
+      `/libraries/${encodeURIComponent(libraryId)}${id === null ? "" : `?session=${id}`}`,
+      { scroll: false }
     )
+    setMessages(id === null ? [] : readTranscript(id, libraryId))
+    setRun(null)
+    setNotice("")
+  }
+  async function handleSend(text: string, retryId?: string) {
+    const prompt = text.trim()
+    if (!library || busyRef.current) return
+    if (prompt.length < 3 || prompt.length > 1000) {
+      setNotice("Use a question between 3 and 1,000 characters.")
+      return
+    }
+    const selectedCategory = category.trim().toLowerCase()
+    if (
+      selectedCategory &&
+      !/^[a-z0-9][a-z0-9_-]{0,49}$/.test(selectedCategory)
+    ) {
+      setNotice(
+        "Use a category of 1–50 lowercase letters, digits, hyphens, or underscores."
+      )
+      return
+    }
+    busyRef.current = true
+    setNotice("")
+    const controller = new AbortController()
+    abortRef.current = controller
+    const runId = crypto.randomUUID()
+    const queryId = retryId ?? crypto.randomUUID()
+    setRun({ id: runId, queryId, prompt, status: "working" })
+    setView("conversation")
+    let activeId = sessionId
+    const retryMessage = retryId
+      ? messages.find(
+          (message) => message.id === retryId && message.role === "user"
+        )
+      : undefined
+    let nextMessages: Message[] = retryMessage
+      ? messages.map((message) =>
+          message.id === queryId ? { ...message, failure: undefined } : message
+        )
+      : [
+          ...messages,
+          {
+            id: queryId,
+            sessionId: activeId ?? undefined,
+            libraryId,
+            role: "user",
+            content: prompt,
+            createdAt: new Date().toISOString(),
+            status: "complete",
+          },
+        ]
+    if (activeId === null) setMessages(nextMessages)
+    else store(activeId, nextMessages)
+    try {
+      if (activeId === null) {
+        const created = await createSession(libraryId, controller.signal)
+        if (controller.signal.aborted)
+          throw new DOMException("Request canceled", "AbortError")
+        if (!mounted.current) return
+        activeId = created.id
+        setSessionId(created.id)
+        setSessions((current) => [created, ...current])
+        rememberSession(libraryId, created.id)
+        router.replace(
+          `/libraries/${encodeURIComponent(libraryId)}?session=${created.id}`,
+          { scroll: false }
+        )
+        nextMessages = nextMessages.map((message) =>
+          message.sessionId === undefined
+            ? { ...message, sessionId: created.id }
+            : message
+        )
+        store(created.id, nextMessages)
+      }
+      const checked = await getSession(activeId, controller.signal)
+      if (String(checked.library_id) !== libraryId)
+        throw new Error(
+          "This session now selects another library. Choose a new session before retrying."
+        )
+      const result = await query(
+        {
+          question: prompt,
+          session_id: activeId,
+          top_k: topK,
+          category: selectedCategory || undefined,
+        },
+        controller.signal
+      )
+      if (controller.signal.aborted)
+        throw new DOMException("Request canceled", "AbortError")
+      if (!mounted.current) return
+      if (
+        result.session_id !== activeId ||
+        String(result.library_id) !== libraryId
+      )
+        throw new Error(
+          "The selected library changed while the request was running. Start a new session to continue."
+        )
+      const answer: Message = {
+        id: crypto.randomUUID(),
+        libraryId,
+        sessionId: activeId,
+        role: "assistant",
+        content: result.answer,
+        createdAt: new Date().toISOString(),
+        status: "complete",
+        model: result.model,
+        sources: result.sources.map((hit) => ({
+          id: hit.chunk_id,
+          documentId: hit.document_id,
+          chunkId: hit.chunk_id,
+          fileName: hit.title,
+          category: hit.category,
+          similarity: hit.similarity,
+          source: hit.source,
+          excerpt: hit.excerpt,
+        })),
+      }
+      store(activeId, [...nextMessages, answer])
+      setRun(null)
+    } catch (cause) {
+      if (mounted.current) {
+        const failure = controller.signal.aborted
+          ? undefined
+          : queryFailure(cause)
+        if (failure) {
+          nextMessages = nextMessages.map((message) =>
+            message.id === queryId ? { ...message, failure } : message
+          )
+          if (activeId === null) setMessages(nextMessages)
+          else store(activeId, nextMessages)
+        }
+        setRun({
+          id: runId,
+          queryId,
+          prompt,
+          status: controller.signal.aborted ? "stopped" : "error",
+          error: controller.signal.aborted
+            ? "Request canceled. No answer was received."
+            : failure?.message,
+        })
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null
+      busyRef.current = false
+    }
   }
 
-  const promptSources: PromptBarSource[] = library.files.map((file) => ({
-    key: file.id,
-    name: file.name,
-    description: file.path,
-    icon: <FileTextIcon aria-hidden="true" />,
-  }))
-
+  if (loading)
+    return (
+      <div
+        aria-label="Loading library and sessions"
+        className="flex flex-col gap-6 p-6 lg:p-10"
+      >
+        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="mx-auto h-40 w-full max-w-4xl" />
+      </div>
+    )
+  if (error || !library)
+    return (
+      <Empty className="min-h-[calc(100svh-4rem)]">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <LibraryBigIcon />
+          </EmptyMedia>
+          <EmptyTitle>Library unavailable</EmptyTitle>
+          <EmptyDescription>{error}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setLoading(true)
+              setError("")
+              setReload((value) => value + 1)
+            }}
+          >
+            Retry loading library
+          </Button>
+          <Button asChild variant="ghost">
+            <Link href="/dashboard">Choose another library</Link>
+          </Button>
+        </EmptyContent>
+      </Empty>
+    )
   return (
     <section className="relative flex h-[calc(100svh-4rem)] min-h-0 flex-col overflow-hidden font-sans lg:h-svh">
-      <header className="flex flex-col gap-4 border-b border-border bg-surface-raised/80 px-4 py-4 backdrop-blur-md sm:px-7 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-        <div className="min-w-0">
+      <header className="flex flex-col gap-2 border-b border-border bg-surface-raised/80 px-4 py-3 sm:px-7 lg:px-8">
+        <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate font-heading text-xl font-semibold tracking-[-0.025em] sm:text-2xl">
+            <h1 className="truncate font-heading text-lg font-semibold sm:text-xl">
               {library.name}
             </h1>
-            <Badge variant="secondary">{library.fileCount} files</Badge>
-          </div>
-          <p className="mt-1 truncate text-sm text-muted-foreground">
-            {library.description ?? "Document analysis workspace"}
-          </p>
-        </div>
-
-        <div
-          className="grid grid-cols-2 rounded-[var(--radius-control)] bg-muted p-1"
-          role="tablist"
-          aria-label="Library views"
-        >
-          {views.map((item) => {
-            const Icon = item.icon
-            const active = view === item.id
-            return (
-              <Button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                variant={active ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setView(item.id)}
-                className={cn("min-w-0", active && "shadow-sm")}
+            {library.isSystem ? (
+              <Badge
+                variant="secondary"
+                aria-label="Built-in read-only library"
               >
-                <Icon data-icon="inline-start" />
-                <span className="truncate">{item.label}</span>
-              </Button>
-            )
-          })}
+                <span className="hidden sm:inline">Built-in · </span>
+                Read-only
+              </Badge>
+            ) : null}
+          </div>
+          <DropdownMenu>
+            <Tooltip>
+              <DropdownMenuTrigger asChild>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="pointer:coarse:size-9"
+                    aria-label="Library options"
+                  >
+                    <MoreHorizontalIcon aria-hidden="true" />
+                  </Button>
+                </TooltipTrigger>
+              </DropdownMenuTrigger>
+              <TooltipContent>Library options</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>
+                  {library.fileCount}{" "}
+                  {library.fileCount === 1 ? "file" : "files"}
+                  {library.isSystem ? " · Built-in, read-only" : ""}
+                </DropdownMenuLabel>
+                <DropdownMenuItem asChild>
+                  <Link href={`/libraries/${libraryId}/documents`}>
+                    <FileTextIcon aria-hidden="true" />
+                    {library.isSystem ? "Browse policies" : "Manage documents"}
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/sessions">
+                    <HistoryIcon aria-hidden="true" />
+                    Manage sessions
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="whitespace-normal">
+                Sessions are saved by the service. History stays in this
+                browser; each question searches independently.
+              </DropdownMenuLabel>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+        <FieldGroup className="flex-row items-center gap-2">
+          <Field className="min-w-0 flex-1 sm:w-60 sm:flex-none">
+            <FieldLabel htmlFor="chat-session" className="sr-only">
+              Session
+            </FieldLabel>
+            <Select
+              value={sessionId === null ? NEW_CONVERSATION : String(sessionId)}
+              onValueChange={(value) =>
+                chooseSession(value === NEW_CONVERSATION ? "" : value)
+              }
+              disabled={busy}
+            >
+              <SelectTrigger
+                id="chat-session"
+                size="sm"
+                className="w-full min-w-0 pointer:coarse:data-[size=sm]:h-9"
+                aria-label="Session"
+              >
+                <SelectValue>
+                  {sessionId === null
+                    ? "New conversation"
+                    : `Session ${sessionId}`}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent position="popper" align="start">
+                <SelectGroup>
+                  <SelectLabel>Conversations</SelectLabel>
+                  <SelectItem value={NEW_CONVERSATION}>
+                    New conversation
+                  </SelectItem>
+                  {sessions.map((session) => (
+                    <SelectItem key={session.id} value={String(session.id)}>
+                      Session {session.id} ·{" "}
+                      {new Date(session.created_at).toLocaleDateString()}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="pointer:coarse:size-9"
+                aria-label="New session"
+                disabled={busy}
+                onClick={() => chooseSession("")}
+              >
+                <PlusIcon aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>New session</TooltipContent>
+          </Tooltip>
+          <nav aria-label="Library views" className="shrink-0">
+            <ToggleGroup
+              type="single"
+              value={view}
+              onValueChange={(nextView) => {
+                if (nextView === "conversation" || nextView === "evidence")
+                  setView(nextView)
+              }}
+              size="sm"
+              spacing={1}
+              aria-label="Library views"
+            >
+              <Tooltip>
+                <ToggleGroupItem
+                  asChild
+                  value="conversation"
+                  aria-label="Conversation"
+                  className="px-2 sm:px-3 pointer:coarse:h-9 pointer:coarse:min-w-9"
+                >
+                  <TooltipTrigger>
+                    <MessageSquareTextIcon aria-hidden="true" />
+                    <span className="hidden sm:inline">Conversation</span>
+                  </TooltipTrigger>
+                </ToggleGroupItem>
+                <TooltipContent>Conversation</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <ToggleGroupItem
+                  asChild
+                  value="evidence"
+                  aria-label="Evidence flow"
+                  className="px-2 sm:px-3 pointer:coarse:h-9 pointer:coarse:min-w-9"
+                >
+                  <TooltipTrigger>
+                    <GitBranchIcon aria-hidden="true" />
+                    <span className="hidden sm:inline">Evidence</span>
+                  </TooltipTrigger>
+                </ToggleGroupItem>
+                <TooltipContent>Evidence flow</TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </nav>
+        </FieldGroup>
       </header>
-
-      <div className="relative min-h-0 flex-1" role="tabpanel">
-        {view === "conversation" ? (
-          <Conversation
+      {notice ? (
+        <div
+          role="alert"
+          className="px-4 py-2 text-sm text-destructive sm:px-7"
+        >
+          {notice}
+        </div>
+      ) : null}
+      <div className="relative min-h-0 flex-1">
+        {view === "evidence" ? (
+          <EvidenceFlow
             library={library}
             messages={messages}
-            run={run}
-            visible={visible}
-            onPrompt={(prompt) => void handleSend(prompt)}
+            onSource={setSource}
           />
         ) : (
-          <DecisionFlow library={library} />
+          <MessageScrollerProvider autoScroll>
+            <MessageScroller>
+              <MessageScrollerViewport className="scroll-pb-64">
+                <MessageScrollerContent className="mx-auto w-full max-w-4xl px-4 pt-7 pb-64 sm:px-7 lg:px-10">
+                  <MessageScrollerItem messageId="conversation-start">
+                    <Marker variant="separator">
+                      <MarkerIcon>
+                        <LibraryBigIcon />
+                      </MarkerIcon>
+                      <MarkerContent>
+                        {library.fileCount} library files plus software policies
+                      </MarkerContent>
+                    </Marker>
+                  </MessageScrollerItem>
+                  {!messages.length && !run ? (
+                    <MessageScrollerItem messageId="welcome">
+                      <MessageRow align="start">
+                        <MessageContent>
+                          <MessageHeader>InstaGrad</MessageHeader>
+                          <Bubble variant="ghost">
+                            <BubbleContent>
+                              <p className="max-w-[62ch] font-serif text-[1.05rem] leading-7">
+                                Ask a question grounded in this library and
+                                software policies, then inspect the original
+                                source excerpts.
+                              </p>
+                            </BubbleContent>
+                          </Bubble>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {[
+                              "What does this evidence support?",
+                              "Where do the sources disagree?",
+                              "Summarize the strongest claim",
+                            ].map((suggestion) => (
+                              <Button
+                                key={suggestion}
+                                variant="outline"
+                                size="sm"
+                                onClick={() => void handleSend(suggestion)}
+                              >
+                                {suggestion}
+                              </Button>
+                            ))}
+                          </div>
+                        </MessageContent>
+                      </MessageRow>
+                    </MessageScrollerItem>
+                  ) : null}
+                  {messages.map((message) => (
+                    <MessageScrollerItem
+                      key={message.id}
+                      messageId={message.id}
+                      scrollAnchor={message.role === "user"}
+                    >
+                      <ChatMessage
+                        message={message}
+                        onSource={setSource}
+                        busy={busy}
+                        onRetry={() =>
+                          void handleSend(message.content, message.id)
+                        }
+                      />
+                    </MessageScrollerItem>
+                  ))}
+                  {run ? (
+                    <MessageScrollerItem messageId={run.id}>
+                      <RunMessage
+                        run={run}
+                        onRetry={() => void handleSend(run.prompt, run.queryId)}
+                      />
+                    </MessageScrollerItem>
+                  ) : null}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
+              <MessageScrollerButton />
+            </MessageScroller>
+          </MessageScrollerProvider>
         )}
       </div>
-
       {view === "conversation" ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-surface via-surface/96 to-transparent px-3 pt-14 pb-4 sm:px-6 lg:px-8">
-          <div className="pointer-events-auto mx-auto flex w-full max-w-[56rem] flex-col items-center gap-2">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-surface via-surface/96 to-transparent px-3 pt-12 pb-4 sm:px-6 lg:px-8">
+          <div className="pointer-events-auto mx-auto flex w-full max-w-4xl flex-col gap-2">
+            <FieldGroup className="flex-row items-end gap-3 rounded-lg bg-surface-raised p-2">
+              <Field className="w-28 shrink-0">
+                <FieldLabel htmlFor="chat-top-k">Chunks / corpus</FieldLabel>
+                <Input
+                  id="chat-top-k"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={topK}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setTopK(
+                      Math.min(
+                        10,
+                        Math.max(1, Math.trunc(Number(event.target.value)) || 1)
+                      )
+                    )
+                  }
+                />
+              </Field>
+              <Field className="min-w-0">
+                <FieldLabel htmlFor="chat-category">Upload category</FieldLabel>
+                <Input
+                  id="chat-category"
+                  placeholder="All categories"
+                  maxLength={50}
+                  value={category}
+                  disabled={busy}
+                  onChange={(event) => setCategory(event.target.value)}
+                />
+              </Field>
+            </FieldGroup>
             <PromptBar
-              className="w-full shadow-panel"
+              className={cn("w-full shadow-panel")}
               width={896}
               radius={20}
               placeholder={`Ask ${library.name}…`}
-              sources={promptSources}
-              models={[{ key: "instagrad", name: "InstaGrad", tag: "Library" }]}
-              defaultModel="instagrad"
-              efforts={["Quick", "Balanced", "Deep"]}
-              defaultEffort="Balanced"
+              sources={[
+                {
+                  key: "documents",
+                  name: "Manage library documents",
+                  description: "Upload or change this library's sources",
+                  attach: true,
+                  icon: <FileTextIcon aria-hidden="true" />,
+                },
+              ]}
+              onAttach={() =>
+                router.push(
+                  `/libraries/${encodeURIComponent(libraryId)}/documents`
+                )
+              }
+              commands={[]}
+              models={[]}
+              efforts={[]}
               busy={busy}
               onSend={(text) => void handleSend(text)}
-              onStop={stop}
+              onStop={() => abortRef.current?.abort()}
               background="var(--surface-raised)"
               color="var(--foreground)"
               menuBackground="var(--popover)"
@@ -729,23 +1167,22 @@ function LibraryChatContent({ libraryId }: { libraryId: string }) {
               maxRows={6}
             />
             <p className="text-center text-xs text-muted-foreground">
-              Use <span className="font-mono">@</span> to focus a source. Verify
-              important decisions against the original files.
+              Search uses the selected library and policies. The service applies
+              its configured chunk limit.
             </p>
           </div>
         </div>
-      ) : (
-        <div className="absolute right-4 bottom-4 sm:right-7">
-          <Button type="button" onClick={() => setView("conversation")}>
-            Ask about this flow
-            <ArrowRightIcon data-icon="inline-end" />
-          </Button>
-        </div>
-      )}
+      ) : null}
+      {source ? (
+        <SourceDialog
+          key={source.id}
+          source={source}
+          onClose={() => setSource(null)}
+        />
+      ) : null}
     </section>
   )
 }
-
 export function LibraryChat({ libraryId }: { libraryId: string }) {
   return <LibraryChatContent key={libraryId} libraryId={libraryId} />
 }
