@@ -76,7 +76,9 @@ function FeaturedLibrary({ library }: { library: Library }) {
           <div className="grid size-11 place-items-center rounded-[var(--radius-control)] bg-primary text-primary-foreground">
             <LibraryBigIcon aria-hidden="true" />
           </div>
-          <Badge variant="secondary">Continue working</Badge>
+          <Badge variant="secondary">
+            {library.isSystem ? "Built-in · Read-only" : "Continue working"}
+          </Badge>
         </div>
         <CardTitle className="text-2xl tracking-[-0.035em]">
           {library.name}
@@ -121,7 +123,7 @@ function FeaturedLibrary({ library }: { library: Library }) {
         </div>
         <Button asChild size="sm" variant="outline">
           <Link href={`/libraries/${library.id}/documents`}>
-            Manage documents
+            {library.isSystem ? "Browse policies" : "Manage documents"}
           </Link>
         </Button>
         <Button asChild size="sm">
@@ -152,6 +154,9 @@ function LibraryRow({ library }: { library: Library }) {
             <span className="block truncate font-heading text-base font-medium">
               {library.name}
             </span>
+            {library.isSystem ? (
+              <Badge variant="secondary">Built-in · Read-only</Badge>
+            ) : null}
             <span className="mt-1 block truncate font-sans text-sm text-muted-foreground">
               {fileNames.length > 0
                 ? fileNames.join(", ")
