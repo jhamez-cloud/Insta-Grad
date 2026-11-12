@@ -58,10 +58,16 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 3
 
 interface Confirmation {
   kind: "delete" | "remove"
@@ -90,6 +96,7 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
   const [preview, setPreview] = React.useState<DocumentDetail | null>(null)
   const [previewError, setPreviewError] = React.useState("")
   const [notice, setNotice] = React.useState("")
+  const readOnly = library?.isSystem === true
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -160,6 +167,13 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
 
   async function confirmMutation() {
     if (!confirmation || busy) return
+    if (
+      readOnly ||
+      confirmation.documents.some((document) => document.source === "seed")
+    ) {
+      setMutationError("Built-in software policies are read-only.")
+      return
+    }
     setBusy(true)
     setMutationError("")
     try {
@@ -198,10 +212,15 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
               ? `${library?.name ?? "Library"} documents`
               : "All documents"}
           </h1>
+          {readOnly ? (
+            <Badge variant="secondary">Built-in · Read-only</Badge>
+          ) : null}
           <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            {libraryId
-              ? "Manage the evidence searched by this library. Removing membership keeps the document in the corpus."
-              : "Browse uploaded documents and software policies. Uncategorized uploads can be added to a library later."}
+            {readOnly
+              ? "These software policies are maintained by the project and included in every query. You can read them here; add your own evidence to a separate library."
+              : libraryId
+                ? "Manage the evidence searched by this library. Removing membership keeps the document in the corpus."
+                : "Browse uploaded documents and software policies. Uncategorized uploads can be added to a library later."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -215,7 +234,7 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
             <RefreshCwIcon data-icon="inline-start" />
             Refresh
           </Button>
-          {libraryId ? (
+          {libraryId && library && !readOnly ? (
             <Button
               type="button"
               size="sm"
@@ -235,7 +254,12 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
         </p>
       ) : null}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div
+        className={cn(
+          "grid items-start gap-6",
+          !readOnly && "lg:grid-cols-[minmax(0,1fr)_20rem]"
+        )}
+      >
         <Card size="sm">
           <CardHeader>
             <CardTitle>Evidence corpus</CardTitle>
@@ -259,18 +283,22 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                   <FieldLabel htmlFor="documents-category-filter">
                     Filter by category
                   </FieldLabel>
-                  <Input
-                    id="documents-category-filter"
-                    value={categoryDraft}
-                    onChange={(event) => setCategoryDraft(event.target.value)}
-                    placeholder="All categories"
-                    maxLength={50}
-                  />
+                  <InputGroup>
+                    <InputGroupInput
+                      id="documents-category-filter"
+                      value={categoryDraft}
+                      onChange={(event) => setCategoryDraft(event.target.value)}
+                      placeholder="All categories"
+                      maxLength={50}
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupButton type="submit" variant="outline">
+                        Apply
+                      </InputGroupButton>
+                    </InputGroupAddon>
+                  </InputGroup>
                 </Field>
               </FieldGroup>
-              <Button type="submit" size="sm" variant="outline">
-                Apply
-              </Button>
             </form>
             {!libraryId ? (
               <Field orientation="horizontal">
@@ -289,7 +317,7 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                 </FieldLabel>
               </Field>
             ) : null}
-            {selection.length && libraryId ? (
+            {selection.length && libraryId && !readOnly ? (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm">{selection.length} selected</span>
                 <Button
@@ -345,7 +373,9 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                   <EmptyDescription>
                     {category || uncategorized
                       ? "Change the filters to see more documents."
-                      : "Upload Markdown or text files to start building your evidence set."}
+                      : readOnly
+                        ? "No software policies have been loaded yet. Refresh after the policy service finishes loading them."
+                        : "Upload PDF, Word, PowerPoint, CSV, text or Markdown files to start building your evidence set."}
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
@@ -371,7 +401,7 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                     key={document.id}
                     className="flex min-w-0 items-start gap-3 rounded-[var(--radius-control)] border border-border p-3"
                   >
-                    {libraryId ? (
+                    {libraryId && !readOnly && document.source !== "seed" ? (
                       <input
                         type="checkbox"
                         checked={selection.includes(document.id)}
@@ -404,6 +434,9 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="secondary">{document.category}</Badge>
+                        {document.source === "seed" ? (
+                          <Badge variant="outline">Read-only</Badge>
+                        ) : null}
                         <span className="text-xs text-muted-foreground">
                           {document.chunk_count} indexed chunks ·{" "}
                           {document.source === "seed"
@@ -423,7 +456,9 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                         >
                           Read document
                         </Button>
-                        {libraryId ? (
+                        {libraryId &&
+                        !readOnly &&
+                        document.source !== "seed" ? (
                           <Button
                             type="button"
                             variant="outline"
@@ -439,21 +474,23 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
                             Remove from library
                           </Button>
                         ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => {
-                            setMutationError("")
-                            setConfirmation({
-                              kind: "delete",
-                              documents: [document],
-                            })
-                          }}
-                        >
-                          <Trash2Icon data-icon="inline-start" />
-                          Delete from corpus
-                        </Button>
+                        {!readOnly && document.source !== "seed" ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => {
+                              setMutationError("")
+                              setConfirmation({
+                                kind: "delete",
+                                documents: [document],
+                              })
+                            }}
+                          >
+                            <Trash2Icon data-icon="inline-start" />
+                            Delete from corpus
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   </li>
@@ -492,7 +529,7 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
             ) : null}
           </CardContent>
         </Card>
-        {!libraryId || library ? (
+        {!readOnly && (!libraryId || library) ? (
           <DocumentUpload libraryId={libraryId} onUploaded={() => refresh()} />
         ) : null}
       </div>
@@ -571,8 +608,9 @@ export function LibraryDocuments({ libraryId }: { libraryId?: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {libraryId ? (
+      {libraryId && library && !readOnly ? (
         <AssignDocumentsDialog
+          key={libraryId}
           libraryId={libraryId}
           open={assignOpen}
           onOpenChange={setAssignOpen}
@@ -613,7 +651,6 @@ function AssignDocumentsDialog({
     async function loadAvailable() {
       setLoading(true)
       setError("")
-      setSelection([])
       try {
         const result = await listDocuments({
           limit: PAGE_SIZE,
@@ -623,6 +660,25 @@ function AssignDocumentsDialog({
         if (active) {
           setDocuments(result.items)
           setTotal(result.total)
+          const unavailableIds = new Set(
+            result.items
+              .filter(
+                (document) =>
+                  document.source === "seed" ||
+                  String(document.library_id) === libraryId
+              )
+              .map((document) => document.id)
+          )
+          setSelection((current) =>
+            current.filter((id) => !unavailableIds.has(id))
+          )
+          if (offset > 0 && offset >= result.total)
+            setOffset(
+              Math.max(
+                0,
+                Math.floor((result.total - 1) / PAGE_SIZE) * PAGE_SIZE
+              )
+            )
         }
       } catch (loadError) {
         if (active && !controller.signal.aborted)
@@ -636,7 +692,14 @@ function AssignDocumentsDialog({
       active = false
       controller.abort()
     }
-  }, [open, offset, revision])
+  }, [open, offset, revision, libraryId])
+
+  function closeDialog() {
+    setSelection([])
+    setOffset(0)
+    setError("")
+    onOpenChange(false)
+  }
 
   async function assign() {
     if (!selection.length || busy) return
@@ -645,8 +708,7 @@ function AssignDocumentsDialog({
     try {
       await assignLibraryDocuments(libraryId, selection)
       onAssigned()
-      onOpenChange(false)
-      setOffset(0)
+      closeDialog()
     } catch (assignError) {
       setError(errorMessage(assignError))
     } finally {
@@ -659,8 +721,8 @@ function AssignDocumentsDialog({
       open={open}
       onOpenChange={(next) => {
         if (!busy) {
-          onOpenChange(next)
-          if (!next) setOffset(0)
+          if (next) onOpenChange(true)
+          else closeDialog()
         }
       }}
     >
@@ -676,6 +738,9 @@ function AssignDocumentsDialog({
             documents you want to move.
           </DialogDescription>
         </DialogHeader>
+        <p role="status" className="text-xs text-muted-foreground">
+          {selection.length} selected
+        </p>
         {error ? (
           <div className="flex flex-col gap-2">
             <p role="alert" className="text-sm text-destructive">
@@ -712,7 +777,10 @@ function AssignDocumentsDialog({
                     type="checkbox"
                     className="mt-1 size-4 shrink-0 accent-primary"
                     checked={selection.includes(document.id)}
-                    disabled={String(document.library_id) === libraryId}
+                    disabled={
+                      document.source === "seed" ||
+                      String(document.library_id) === libraryId
+                    }
                     onChange={(event) =>
                       setSelection((current) =>
                         event.target.checked
@@ -729,11 +797,13 @@ function AssignDocumentsDialog({
                       #{document.id} · {document.filename}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {String(document.library_id) === libraryId
-                        ? "Already in this library"
-                        : document.library_id === null
-                          ? "Uncategorized"
-                          : `Will move from library ${document.library_id}`}
+                      {document.source === "seed"
+                        ? "Built-in software policy · Read-only"
+                        : String(document.library_id) === libraryId
+                          ? "Already in this library"
+                          : document.library_id === null
+                            ? "Uncategorized"
+                            : `Will move from library ${document.library_id}`}
                     </span>
                   </span>
                 </label>
@@ -780,7 +850,7 @@ function AssignDocumentsDialog({
             type="button"
             variant="outline"
             disabled={busy}
-            onClick={() => onOpenChange(false)}
+            onClick={closeDialog}
           >
             Cancel
           </Button>
@@ -791,7 +861,7 @@ function AssignDocumentsDialog({
           >
             {busy
               ? "Moving documents…"
-              : `Move ${selection.length || "selected"} documents into library`}
+              : `Move ${selection.length || "selected"} ${selection.length === 1 ? "document" : "documents"} into library`}
           </Button>
         </DialogFooter>
       </DialogContent>

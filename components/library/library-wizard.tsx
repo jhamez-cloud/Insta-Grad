@@ -15,11 +15,12 @@ import {
   addSelectedFiles,
   CATEGORY_PATTERN,
   errorMessage,
-  FILE_ACCEPT,
   uploadSelection,
   uploadStatusLabel,
   type SelectedUpload,
 } from "@/components/library/upload-helpers"
+import { useUploadConfiguration } from "@/components/library/use-upload-configuration"
+import { DOCUMENT_FORMAT_LABEL } from "@/lib/document-formats"
 import type { Library } from "@/lib/types"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -85,6 +86,7 @@ function folderEntries(files: SelectedUpload[]) {
 }
 
 export function LibraryWizard() {
+  const { extensions, fileAccept, limitLabel } = useUploadConfiguration()
   const router = useRouter()
   const { resolvedTheme } = useTheme()
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -123,11 +125,11 @@ export function LibraryWizard() {
 
   const addFiles = (selected: File[]) => {
     if (saving || uploading) return
-    const result = addSelectedFiles(files, selected)
+    const result = addSelectedFiles(files, selected, extensions)
     setFiles(result.items)
     setError(
       result.unsupported.length
-        ? `Only .md, .markdown and .txt files are supported. Skipped: ${result.unsupported.slice(0, 3).join(", ")}.`
+        ? `Supported extensions: ${extensions.join(", ")}. Skipped: ${result.unsupported.slice(0, 3).join(", ")}.`
         : ""
     )
   }
@@ -173,7 +175,8 @@ export function LibraryWizard() {
           item.status !== "indexed" &&
           !(
             item.status === "duplicate" &&
-            String(item.document?.library_id) === library.id
+            (String(item.document?.library_id) === library.id ||
+              item.document?.source === "seed")
           )
       )
       if (controller.signal.aborted || needsAttention) {
@@ -337,7 +340,7 @@ export function LibraryWizard() {
                       : "Add the documents you want to analyze"}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Markdown and text files are uploaded and indexed when you
+                  Documents are converted to readable text and indexed when you
                   save.
                 </p>
               </div>
@@ -377,8 +380,8 @@ export function LibraryWizard() {
                 <div className="flex max-w-sm flex-col gap-1">
                   <p className="text-sm font-medium">Drop files here</p>
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Choose UTF-8 .md, .markdown or .txt files. Folder paths are
-                    shown here; the service stores each filename.
+                    Choose {DOCUMENT_FORMAT_LABEL} files. {limitLabel} Scanned
+                    documents need OCR first.
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-center gap-2">
@@ -408,7 +411,7 @@ export function LibraryWizard() {
                 ref={fileInputRef}
                 className="sr-only"
                 type="file"
-                accept={FILE_ACCEPT}
+                accept={fileAccept}
                 multiple
                 onChange={handleInputFiles}
                 tabIndex={-1}
@@ -422,7 +425,7 @@ export function LibraryWizard() {
                 }}
                 className="sr-only"
                 type="file"
-                accept={FILE_ACCEPT}
+                accept={fileAccept}
                 multiple
                 onChange={handleInputFiles}
                 tabIndex={-1}

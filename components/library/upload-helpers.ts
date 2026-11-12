@@ -1,5 +1,6 @@
 import { uploadDocuments } from "@/lib/api"
 import type { DocumentOut } from "@/lib/types"
+import { DOCUMENT_EXTENSIONS, supportsDocument } from "@/lib/document-formats"
 
 export interface SelectedUpload {
   id: string
@@ -11,17 +12,20 @@ export interface SelectedUpload {
   document?: DocumentOut | null
 }
 
-export const FILE_ACCEPT = ".md,.markdown,.txt,text/plain,text/markdown"
 export const CATEGORY_PATTERN = /^[a-z0-9][a-z0-9_-]{0,49}$/
 
-export function addSelectedFiles(current: SelectedUpload[], selected: File[]) {
+export function addSelectedFiles(
+  current: SelectedUpload[],
+  selected: File[],
+  extensions = DOCUMENT_EXTENSIONS
+) {
   const items = [...current]
   const keys = new Set(
     current.map(({ file, path }) => `${path}:${file.size}:${file.lastModified}`)
   )
   const unsupported: string[] = []
   for (const file of selected) {
-    if (!/\.(md|markdown|txt)$/i.test(file.name)) {
+    if (!supportsDocument(file.name, extensions)) {
       unsupported.push(file.name)
       continue
     }
@@ -42,6 +46,8 @@ export function addSelectedFiles(current: SelectedUpload[], selected: File[]) {
 
 export function uploadStatusLabel(item: SelectedUpload, libraryId?: string) {
   if (item.status === "duplicate") {
+    if (item.document?.source === "seed")
+      return "Built-in policy · Already available"
     return libraryId && String(item.document?.library_id) === libraryId
       ? "Already in this library"
       : "Duplicate; existing document kept"

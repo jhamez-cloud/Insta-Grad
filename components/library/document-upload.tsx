@@ -22,11 +22,12 @@ import { Input } from "@/components/ui/input"
 import {
   addSelectedFiles,
   CATEGORY_PATTERN,
-  FILE_ACCEPT,
   uploadSelection,
   uploadStatusLabel,
   type SelectedUpload,
 } from "@/components/library/upload-helpers"
+import { useUploadConfiguration } from "@/components/library/use-upload-configuration"
+import { DOCUMENT_FORMAT_LABEL } from "@/lib/document-formats"
 
 export function DocumentUpload({
   libraryId,
@@ -36,6 +37,7 @@ export function DocumentUpload({
   onUploaded: () => void
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const { extensions, fileAccept, limitLabel } = useUploadConfiguration()
   const controllerRef = React.useRef<AbortController | null>(null)
   const [items, setItems] = React.useState<SelectedUpload[]>([])
   const [category, setCategory] = React.useState("general")
@@ -73,8 +75,9 @@ export function DocumentUpload({
       <CardHeader>
         <CardTitle>Add documents</CardTitle>
         <CardDescription>
-          Upload UTF-8 .md, .markdown or .txt files
+          Upload {DOCUMENT_FORMAT_LABEL} files
           {libraryId ? " into this library" : " as uncategorized documents"}.
+          {limitLabel ? ` ${limitLabel}` : ""} Scanned documents need OCR first.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -99,7 +102,7 @@ export function DocumentUpload({
         <input
           ref={inputRef}
           type="file"
-          accept={FILE_ACCEPT}
+          accept={fileAccept}
           multiple
           className="sr-only"
           tabIndex={-1}
@@ -108,12 +111,13 @@ export function DocumentUpload({
           onChange={(event) => {
             const result = addSelectedFiles(
               items,
-              Array.from(event.target.files ?? [])
+              Array.from(event.target.files ?? []),
+              extensions
             )
             setItems(result.items)
             setError(
               result.unsupported.length
-                ? "Only Markdown and text files are supported."
+                ? `Supported extensions: ${extensions.join(", ")}. Skipped: ${result.unsupported.slice(0, 3).join(", ")}.`
                 : ""
             )
             event.target.value = ""
@@ -199,8 +203,9 @@ export function DocumentUpload({
                 item.status === "duplicate" &&
                 String(item.document?.library_id) !== libraryId ? (
                   <p className="text-xs leading-5 text-muted-foreground">
-                    Use “Add existing documents” to move document{" "}
-                    {item.document?.id} into this library.
+                    {item.document?.source === "seed"
+                      ? "This file is a built-in software policy. It stays in the read-only policy library and is already included in every query."
+                      : `Use “Add existing documents” to move document ${item.document?.id} into this library.`}
                   </p>
                 ) : null}
               </li>
