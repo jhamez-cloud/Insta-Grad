@@ -7,7 +7,6 @@ import { useReducedMotion } from "motion/react"
 import { useTheme } from "next-themes"
 import {
   ArrowRightIcon,
-  BookOpenTextIcon,
   FilesIcon,
   GitBranchIcon,
   MessageSquareTextIcon,
@@ -34,15 +33,9 @@ type VisualTokens = {
 
 const promptSources: PromptBarSource[] = [
   {
-    key: "research",
-    name: "Research library",
-    description: "Market notes and interviews",
-    icon: <BookOpenTextIcon aria-hidden="true" />,
-  },
-  {
     key: "files",
-    name: "Choose files",
-    description: "PDF, DOCX, XLSX, and folders",
+    name: "Create a library",
+    description: "Text and Markdown documents",
     icon: <FilesIcon aria-hidden="true" />,
     attach: true,
   },
@@ -79,7 +72,9 @@ function useLandingEnvironment() {
   const reduceMotion = useReducedMotion()
   const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const [visible, setVisible] = useState(() => (typeof document === "undefined" ? true : !document.hidden))
+  const [visible, setVisible] = useState(() =>
+    typeof document === "undefined" ? true : !document.hidden
+  )
   const [webgl, setWebgl] = useState(false)
   const [tokens, setTokens] = useState<VisualTokens>(fallbackTokens)
 
@@ -101,7 +96,8 @@ function useLandingEnvironment() {
   useEffect(() => {
     const handleVisibility = () => setVisible(!document.hidden)
     document.addEventListener("visibilitychange", handleVisibility)
-    return () => document.removeEventListener("visibilitychange", handleVisibility)
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility)
   }, [])
 
   return {
@@ -117,7 +113,10 @@ function useLandingEnvironment() {
 
 function BrandMark() {
   return (
-    <Link href="/" className="inline-flex items-center gap-2.5 font-sans font-semibold">
+    <Link
+      href="/"
+      className="inline-flex items-center gap-2.5 font-sans font-semibold"
+    >
       <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
         <SparklesIcon aria-hidden="true" className="size-4" />
       </span>
@@ -141,13 +140,22 @@ function WorkspacePreview() {
             <div className="mt-7 rounded-[var(--radius-control)] border border-sidebar-border bg-sidebar-accent px-3 py-2 text-xs text-sidebar-accent-foreground">
               Search 24 sources
             </div>
-            <nav aria-label="Preview library" className="mt-7 flex flex-col gap-1 text-sm">
+            <nav
+              aria-label="Preview library"
+              className="mt-7 flex flex-col gap-1 text-sm"
+            >
               <span className="rounded-[var(--radius-control)] bg-sidebar-primary px-3 py-2.5 text-sidebar-primary-foreground">
                 Market expansion
               </span>
-              <span className="px-3 py-2.5 text-sidebar-foreground/60">Customer interviews</span>
-              <span className="px-3 py-2.5 text-sidebar-foreground/60">Quarterly metrics</span>
-              <span className="px-3 py-2.5 text-sidebar-foreground/60">Competitor notes</span>
+              <span className="px-3 py-2.5 text-sidebar-foreground/60">
+                Customer interviews
+              </span>
+              <span className="px-3 py-2.5 text-sidebar-foreground/60">
+                Quarterly metrics
+              </span>
+              <span className="px-3 py-2.5 text-sidebar-foreground/60">
+                Competitor notes
+              </span>
             </nav>
             <div className="mt-auto border-t border-sidebar-border pt-4 text-xs text-sidebar-foreground/60">
               24 files indexed
@@ -157,15 +165,22 @@ function WorkspacePreview() {
           <div className="relative flex min-w-0 flex-col bg-background">
             <header className="flex items-center justify-between border-b px-5 py-4 font-sans sm:px-7">
               <div>
-                <p className="text-sm font-medium">Should we enter the education market?</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">Analysis across 24 sources</p>
+                <p className="text-sm font-medium">
+                  Should we enter the education market?
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Analysis across 24 sources
+                </p>
               </div>
-              <span className="rounded-full bg-signal-soft px-3 py-1 text-xs text-foreground">Decision ready</span>
+              <span className="rounded-full bg-signal-soft px-3 py-1 text-xs text-foreground">
+                Decision ready
+              </span>
             </header>
 
             <div className="flex flex-1 flex-col px-5 py-7 sm:px-8 sm:py-9">
               <div className="ms-auto max-w-[31rem] rounded-[var(--radius-panel)] bg-muted px-4 py-3 font-sans text-sm">
-                Compare the strongest evidence for entering now versus waiting one year.
+                Compare the strongest evidence for entering now versus waiting
+                one year.
               </div>
 
               <div className="mt-8 max-w-[46rem]">
@@ -177,22 +192,35 @@ function WorkspacePreview() {
                   Enter through a bounded pilot, not a full rollout.
                 </h2>
                 <p className="mt-4 max-w-[66ch] text-sm leading-7 text-muted-foreground sm:text-base">
-                  Demand is credible in two segments, but procurement timing and implementation support remain uneven.
-                  A six-month pilot preserves the upside while producing the evidence needed for the larger decision.
+                  Demand is credible in two segments, but procurement timing and
+                  implementation support remain uneven. A six-month pilot
+                  preserves the upside while producing the evidence needed for
+                  the larger decision.
                 </p>
 
                 <ol className="mt-7 flex flex-col border-s font-sans">
                   {[
-                    ["Signal", "Repeated demand in interview and market sources"],
-                    ["Constraint", "Long procurement cycles in larger institutions"],
-                    ["Decision", "Pilot with two smaller partners and a clear success threshold"],
+                    [
+                      "Signal",
+                      "Repeated demand in interview and market sources",
+                    ],
+                    [
+                      "Constraint",
+                      "Long procurement cycles in larger institutions",
+                    ],
+                    [
+                      "Decision",
+                      "Pilot with two smaller partners and a clear success threshold",
+                    ],
                   ].map(([title, detail], index) => (
-                    <li key={title} className="relative pb-5 ps-6 last:pb-0">
+                    <li key={title} className="relative ps-6 pb-5 last:pb-0">
                       <span className="absolute -start-[0.44rem] top-0 grid size-3.5 place-items-center rounded-full bg-primary text-[0.55rem] text-primary-foreground">
                         {index + 1}
                       </span>
                       <p className="text-sm font-medium">{title}</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        {detail}
+                      </p>
                     </li>
                   ))}
                 </ol>
@@ -216,25 +244,29 @@ function AnalysisSequence() {
     {
       icon: FilesIcon,
       title: "Build one evidence library",
-      body: "Drop in files and folders without reorganizing the work first. InstaGrad keeps the source structure visible while it indexes the content.",
-      detail: "PDF · DOCX · XLSX · folders",
+      body: "Upload text or Markdown documents into a library. Manage its sources before asking a question.",
+      detail: "TXT · MD · Markdown",
     },
     {
       icon: MessageSquareTextIcon,
       title: "Ask in the language of the decision",
-      body: "The conversation stays connected to the library. You can challenge an answer, narrow the evidence, and stop a response while it streams.",
+      body: "Each question searches your selected library and shared software policies. Filter document categories and inspect the sources returned with the answer.",
       detail: "Sources remain attached to each answer",
     },
     {
       icon: GitBranchIcon,
-      title: "See how the recommendation formed",
-      body: "Decision flows turn scattered claims into a sequence of signals, constraints, and actions that a team can review together.",
+      title: "Inspect the retrieved evidence",
+      body: "Read the cited passages and open the full source documents to check an answer against its evidence.",
       detail: "Evidence before confidence",
     },
   ]
 
   return (
-    <section id="how-it-works" aria-labelledby="sequence-title" className="px-4 py-24 sm:px-6 sm:py-32">
+    <section
+      id="how-it-works"
+      aria-labelledby="sequence-title"
+      className="px-4 py-24 sm:px-6 sm:py-32"
+    >
       <div className="mx-auto max-w-[var(--content-max)]">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:gap-16">
           <div className="lg:sticky lg:top-24 lg:self-start">
@@ -245,8 +277,8 @@ function AnalysisSequence() {
               From document pile to reviewable decision.
             </h2>
             <p className="mt-5 max-w-[38rem] text-base leading-7 text-muted-foreground">
-              The workflow follows how analysis actually happens: collect the evidence, question it, then expose the
-              reasoning for review.
+              The workflow follows how analysis actually happens: collect the
+              evidence, question it, then expose the reasoning for review.
             </p>
           </div>
 
@@ -254,7 +286,10 @@ function AnalysisSequence() {
             {steps.map((step, index) => {
               const Icon = step.icon
               return (
-                <li key={step.title} className="grid gap-5 border-b py-8 sm:grid-cols-[3.5rem_1fr] sm:py-10">
+                <li
+                  key={step.title}
+                  className="grid gap-5 border-b py-8 sm:grid-cols-[3.5rem_1fr] sm:py-10"
+                >
                   <div className="flex items-center gap-3 sm:block">
                     <span className="grid size-10 place-items-center rounded-[var(--radius-control)] bg-signal-soft text-foreground">
                       <Icon aria-hidden="true" className="size-5" />
@@ -264,11 +299,15 @@ function AnalysisSequence() {
                     </span>
                   </div>
                   <div>
-                    <h3 className="text-2xl leading-tight tracking-tight">{step.title}</h3>
+                    <h3 className="text-2xl leading-tight tracking-tight">
+                      {step.title}
+                    </h3>
                     <p className="mt-3 max-w-[62ch] font-sans text-sm leading-7 text-muted-foreground sm:text-base">
                       {step.body}
                     </p>
-                    <p className="mt-4 font-mono text-xs text-foreground/70">{step.detail}</p>
+                    <p className="mt-4 font-mono text-xs text-foreground/70">
+                      {step.detail}
+                    </p>
                   </div>
                 </li>
               )
@@ -307,7 +346,11 @@ export function LandingPage() {
             <Lightfall
               colors={
                 isDark
-                  ? [environment.tokens.primary, environment.tokens.chart, environment.tokens.foreground]
+                  ? [
+                      environment.tokens.primary,
+                      environment.tokens.chart,
+                      environment.tokens.foreground,
+                    ]
                   : [environment.tokens.primary, environment.tokens.chart]
               }
               backgroundColor={environment.tokens.background}
@@ -337,7 +380,10 @@ export function LandingPage() {
 
         <header className="mx-auto flex w-full max-w-[var(--content-max)] items-center justify-between px-4 py-5 sm:px-6 sm:py-7">
           <BrandMark />
-          <nav aria-label="Primary" className="flex items-center gap-1 font-sans">
+          <nav
+            aria-label="Primary"
+            className="flex items-center gap-1 font-sans"
+          >
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
               <a href="#how-it-works">How it works</a>
             </Button>
@@ -394,12 +440,12 @@ export function LandingPage() {
 
           <div className="mt-2 max-w-[44rem] sm:mt-4">
             <h1 className="sr-only">InstaGrad document analysis</h1>
-            <p className="text-balance text-2xl leading-tight tracking-tight sm:text-3xl lg:text-4xl">
+            <p className="text-2xl leading-tight tracking-tight text-balance sm:text-3xl lg:text-4xl">
               Turn a folder of evidence into a decision your team can inspect.
             </p>
             <p className="mx-auto mt-4 max-w-[58ch] font-sans text-sm leading-7 text-foreground/65 sm:text-base">
-              Create a library, ask questions across every source, and follow the reasoning from first signal to final
-              recommendation.
+              Create a library, ask questions about its documents, and review
+              the cited passages behind each answer.
             </p>
           </div>
 
@@ -410,25 +456,22 @@ export function LandingPage() {
               radius={18}
               placeholder="What decision are these documents helping you make?"
               sources={promptSources}
-              commands={[
-                { key: "compare", name: "/compare", description: "Compare the strongest positions" },
-                { key: "decide", name: "/decide", description: "Build a reviewable decision flow" },
-              ]}
-              models={[{ key: "instagrad", name: "InstaGrad", tag: "Library analyst" }]}
-              defaultModel="instagrad"
-              efforts={["Quick", "Balanced", "Deep"]}
-              defaultEffort="Balanced"
+              commands={[]}
+              models={[]}
+              efforts={[]}
               background="var(--surface-raised)"
               color="var(--foreground)"
               menuBackground="var(--popover)"
               sparkColor="var(--primary)"
               sparkBoost={0.7}
               maxRows={4}
-              onAttach={() => "Research brief.pdf"}
+              onAttach={() => router.push("/libraries/new")}
               onSend={() => router.push("/dashboard")}
             />
           </div>
-          <p className="mt-3 font-sans text-xs text-foreground/65">Try a question, or open the workspace with sample evidence.</p>
+          <p className="mt-3 font-sans text-xs text-foreground/65">
+            Open the workspace and select a library to ask a question.
+          </p>
 
           <Button asChild size="lg" className="mt-7 sm:hidden">
             <Link href="/dashboard">
@@ -442,12 +485,16 @@ export function LandingPage() {
       <section aria-labelledby="preview-title" className="py-20 sm:py-28">
         <div className="mx-auto mb-10 max-w-[var(--content-max)] px-4 sm:px-6">
           <div className="max-w-[50rem]">
-            <h2 id="preview-title" className="text-4xl leading-[1.06] tracking-tight text-balance sm:text-5xl">
+            <h2
+              id="preview-title"
+              className="text-4xl leading-[1.06] tracking-tight text-balance sm:text-5xl"
+            >
               Analysis that keeps its evidence in view.
             </h2>
             <p className="mt-5 max-w-[62ch] font-sans text-base leading-7 text-muted-foreground">
-              The answer, its source trail, and the decision sequence share one workspace, so review does not mean
-              reconstructing what the model did afterward.
+              Answers include retrieved source passages, their document titles,
+              and provenance. The illustration below shows the workspace
+              concept.
             </p>
           </div>
         </div>
@@ -462,7 +509,8 @@ export function LandingPage() {
             Start with the documents already on your desk.
           </h2>
           <p className="mt-5 max-w-[54ch] font-sans text-base leading-7 text-muted-foreground">
-            The mock workspace is ready with sample libraries, streaming analysis, and decision flows.
+            Create a library, upload text or Markdown, and start a session
+            grounded in your documents and shared software policies.
           </p>
           <Button asChild size="lg" className="mt-8">
             <Link href="/dashboard">
