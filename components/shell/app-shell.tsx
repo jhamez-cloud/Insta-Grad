@@ -8,7 +8,9 @@ import {
   ArrowLeftIcon,
   BoxesIcon,
   FilePlus2Icon,
+  FileStackIcon,
   LibraryBigIcon,
+  MessagesSquareIcon,
   MenuIcon,
   MoonIcon,
   SearchIcon,
@@ -28,6 +30,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 type NavItem = {
@@ -49,24 +56,27 @@ const workspaceItems: NavItem[] = [
     href: "/libraries/new",
     icon: FilePlus2Icon,
   },
+  { label: "Documents", href: "/documents", icon: FileStackIcon },
+  { label: "Sessions", href: "/sessions", icon: MessagesSquareIcon },
 ]
 
 function BackToSite() {
   return (
-    <Button
-      asChild
-      variant="ghost"
-      size="icon"
-      className="shrink-0 text-muted-foreground hover:text-foreground"
-    >
-      <Link
-        href="/"
-        aria-label="Back to InstaGrad home"
-        title="Back to InstaGrad home"
-      >
-        <ArrowLeftIcon />
-      </Link>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          asChild
+          variant="ghost"
+          size="icon"
+          className="shrink-0 text-muted-foreground hover:text-foreground"
+        >
+          <Link href="/" aria-label="Back to InstaGrad home">
+            <ArrowLeftIcon />
+          </Link>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Back to InstaGrad home</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -128,24 +138,28 @@ function ThemeToggle() {
   const label = dark ? "Use light theme" : "Use dark theme"
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="w-full justify-start"
-      onClick={() => setTheme(dark ? "light" : "dark")}
-      aria-label={label}
-      title={`${label} (D)`}
-    >
-      {dark ? (
-        <SunIcon data-icon="inline-start" />
-      ) : (
-        <MoonIcon data-icon="inline-start" />
-      )}
-      {mounted ? (dark ? "Light theme" : "Dark theme") : "Theme"}
-      <kbd className="ms-auto font-mono text-[0.6875rem] text-muted-foreground">
-        D
-      </kbd>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-full justify-start"
+          onClick={() => setTheme(dark ? "light" : "dark")}
+          aria-label={label}
+        >
+          {dark ? (
+            <SunIcon data-icon="inline-start" />
+          ) : (
+            <MoonIcon data-icon="inline-start" />
+          )}
+          {mounted ? (dark ? "Light theme" : "Dark theme") : "Theme"}
+          <kbd className="ms-auto font-mono text-[0.6875rem] text-muted-foreground">
+            D
+          </kbd>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label} (D)</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -198,7 +212,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               Research workspace
             </span>
             <span className="block truncate text-xs text-muted-foreground">
-              Mock data · local only
+              Library documents and software policies
             </span>
           </span>
         </div>

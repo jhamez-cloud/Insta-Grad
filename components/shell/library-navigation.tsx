@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogClose,
@@ -35,6 +36,11 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   deleteLibrary,
   listLibraries,
@@ -123,6 +129,7 @@ export function LibraryNavigation({
   }, [openedId])
 
   const beginAction = (kind: SelectedAction["kind"], library: Library) => {
+    if (library.isSystem) return
     returnFocusId.current = library.id
     setExpanded(null)
     setSelected({ kind, library })
@@ -155,16 +162,22 @@ export function LibraryNavigation({
   }
 
   const validationError =
-    submitted && name.trim().length < 2
-      ? "Use at least 2 characters for the library name."
+    submitted && (name.trim().length < 1 || name.trim().length > 255)
+      ? "Use between 1 and 255 characters for the library name."
       : ""
   const fieldError = validationError || actionError
 
   const saveName = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!selected || selected.kind !== "rename" || pending) return
+    if (
+      !selected ||
+      selected.kind !== "rename" ||
+      selected.library.isSystem ||
+      pending
+    )
+      return
     setSubmitted(true)
-    if (name.trim().length < 2) return
+    if (name.trim().length < 1 || name.trim().length > 255) return
     setPending(true)
     setActionError("")
     try {
@@ -176,15 +189,25 @@ export function LibraryNavigation({
       )
       setAnnouncement(`Library renamed to ${renamed.name}.`)
       setDialogOpen(false)
-    } catch {
-      setActionError("The name could not be saved. Try again.")
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "The name could not be saved. Try again."
+      )
     } finally {
       setPending(false)
     }
   }
 
   const removeLibrary = async () => {
-    if (!selected || selected.kind !== "delete" || pending) return
+    if (
+      !selected ||
+      selected.kind !== "delete" ||
+      selected.library.isSystem ||
+      pending
+    )
+      return
     setPending(true)
     setActionError("")
     try {
@@ -194,14 +217,17 @@ export function LibraryNavigation({
       )
       setAnnouncement(`${selected.library.name} deleted.`)
       setDialogOpen(false)
-      if (
-        pathname === `/libraries/${encodeURIComponent(selected.library.id)}`
-      ) {
+      const libraryPath = `/libraries/${encodeURIComponent(selected.library.id)}`
+      if (pathname === libraryPath || pathname.startsWith(`${libraryPath}/`)) {
         router.replace("/dashboard")
         onNavigate?.()
       }
-    } catch {
-      setActionError("The library could not be deleted. Try again.")
+    } catch (error) {
+      setActionError(
+        error instanceof Error
+          ? error.message
+          : "The library could not be deleted. Try again."
+      )
     } finally {
       setPending(false)
     }
@@ -258,7 +284,42 @@ export function LibraryNavigation({
         <ul className="flex min-w-0 flex-col gap-1">
           {visibleLibraries.map((library) => {
             const href = `/libraries/${encodeURIComponent(library.id)}`
-            const active = pathname === href
+            const active = pathname === href || pathname.startsWith(`${href}/`)
+            if (library.isSystem) {
+              return (
+                <li
+                  key={library.id}
+                  className="min-w-0"
+                  data-library-row={library.id}
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        asChild
+                        variant={active ? "default" : "ghost"}
+                        className="h-11 w-full justify-start gap-2 px-3"
+                      >
+                        <Link
+                          href={href}
+                          aria-current={active ? "page" : undefined}
+                          onClick={onNavigate}
+                        >
+                          <LibraryBigIcon data-icon="inline-start" />
+                          <span className="min-w-0 flex-1 truncate text-start">
+                            {library.name}
+                          </span>
+                          <Badge variant="secondary">Built-in</Badge>
+                          <span className="sr-only">Read-only library</span>
+                        </Link>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {library.name} · Built-in, read-only library
+                    </TooltipContent>
+                  </Tooltip>
+                </li>
+              )
+            }
             const actions: SwipeAction[] = [
               {
                 id: "delete",
@@ -316,24 +377,28 @@ export function LibraryNavigation({
                     } as React.CSSProperties
                   }
                 >
-                  <Link
-                    href={href}
-                    draggable={false}
-                    aria-current={active ? "page" : undefined}
-                    title={library.name}
-                    className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-sm text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
-                    onClick={() => {
-                      setExpanded(null)
-                      onNavigate?.()
-                    }}
-                  >
-                    <LibraryBigIcon
-                      aria-hidden="true"
-                      className="size-4 shrink-0"
-                      strokeWidth={1.9}
-                    />
-                    <span className="truncate">{library.name}</span>
-                  </Link>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={href}
+                        draggable={false}
+                        aria-current={active ? "page" : undefined}
+                        className="flex h-full min-w-0 flex-1 items-center gap-3 rounded-sm text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+                        onClick={() => {
+                          setExpanded(null)
+                          onNavigate?.()
+                        }}
+                      >
+                        <LibraryBigIcon
+                          aria-hidden="true"
+                          className="size-4 shrink-0"
+                          strokeWidth={1.9}
+                        />
+                        <span className="truncate">{library.name}</span>
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{library.name}</TooltipContent>
+                  </Tooltip>
                 </SwipeRow>
               </li>
             )
@@ -387,6 +452,7 @@ export function LibraryNavigation({
                     setActionError("")
                   }}
                   autoComplete="off"
+                  maxLength={255}
                   disabled={pending}
                   aria-invalid={Boolean(fieldError)}
                   aria-describedby={fieldError ? errorId : undefined}
@@ -430,8 +496,9 @@ export function LibraryNavigation({
               Delete “{selected?.library.name}”?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes the library and its saved conversations from this
-              workspace.
+              Documents stay in the document collection without a library.
+              Existing sessions lose their selected library until you choose
+              another.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {actionError ? (
