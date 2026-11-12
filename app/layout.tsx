@@ -5,6 +5,7 @@ import localFont from "next/font/local"
 import "./globals.css"
 import { RootEffects } from "@/components/shell/root-effects"
 import { ThemeProvider } from "@/components/theme-provider"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const notoSerif = localFont({
@@ -33,7 +34,9 @@ export default function RootLayout({
     >
       <body className="min-h-svh overflow-x-hidden">
         <ThemeProvider>
-          <RootEffects>{children}</RootEffects>
+          <TooltipProvider delayDuration={400}>
+            <RootEffects>{children}</RootEffects>
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>

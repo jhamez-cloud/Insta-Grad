@@ -11,6 +11,7 @@ const ROUTES: Array<{ pattern: RegExp; methods: string[]; admin?: boolean }> = [
   { pattern: /^openapi\.json$/, methods: ["GET"] },
   { pattern: /^query$/, methods: ["POST"] },
   { pattern: /^documents$/, methods: ["GET"] },
+  { pattern: /^documents\/upload-options$/, methods: ["GET"] },
   { pattern: /^documents\/upload$/, methods: ["POST"], admin: true },
   { pattern: /^documents\/[1-9]\d*$/, methods: ["GET", "DELETE"], admin: true },
   { pattern: /^libraries$/, methods: ["GET", "POST"], admin: true },
