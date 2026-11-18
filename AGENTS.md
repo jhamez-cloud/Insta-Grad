@@ -1,6 +1,6 @@
 <!-- BEGIN:nextjs-agent-rules -->
 
-# This is NOT the Next.js you know
+## This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
 
@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # InstaGrad frontend project guide
 
-Last audited: 2026-11-01
+Last audited: 2026-11-12
 
 This file is the canonical project inventory and implementation guide. Keep it
 current whenever a skill, package, design token, font, or shared UI component
@@ -135,6 +135,10 @@ minimum needed.
 | --- | --- | --- |
 | `Button` | `components/ui/button.tsx` | shadcn/Radix button with default, outline, secondary, ghost, destructive, and link variants; sizes from `xs` through `lg` plus icon sizes |
 | `Dialog`, `AlertDialog` | `components/ui/{dialog,alert-dialog}.tsx` | Accessible rename and delete-confirmation dialogs with responsive widths, project font/radius roles, and reduced-motion support |
+| `Select`, `DropdownMenu` | `components/ui/{select,dropdown-menu}.tsx` | Radix selection and secondary actions with portal positioning, keyboard operation and reduced-motion support; used by chat and session library controls |
+| `InputGroup` | `components/ui/input-group.tsx` | Composes inputs with addons and buttons; document category filtering uses `InputGroupInput` and a trailing Apply button |
+| `Toggle`, `ToggleGroup` | `components/ui/{toggle,toggle-group}.tsx` | Single and grouped choices; chat view selection shows labels on desktop and accessible icons on mobile |
+| `Tooltip` | `components/ui/tooltip.tsx` | shadcn/Radix hover and keyboard hints; root `TooltipProvider` uses a 400ms delay, viewport collision handling and reduced-motion support. Compose triggers with `asChild`; use this component instead of native HTML `title` tooltips |
 | `SwipeRow` | `components/SwipeRow.tsx` | Owner-supplied gesture row with a visible actions toggle, keyboard focus, and link-safe pointer capture; library rows use `fullSwipe={false}` and `dismiss: false` to reveal actions before changing data |
 | Form and surface primitives | `components/ui/{card,input,textarea,field,badge,separator,progress,skeleton,empty,sheet}.tsx` | Installed shadcn primitives for dashboard surfaces, forms, feedback, empty states, and the mobile navigation sheet |
 | Chat primitives | `components/ui/{message-scroller,message,bubble,attachment,marker,trace}.tsx` | Installed shadcn conversation primitives for accessible streamed chat composition |
@@ -231,3 +235,59 @@ npm run format
 Run lint and typecheck for normal code changes. Run a production build when a
 change affects routing, framework configuration, rendering boundaries, global
 styles, or production behavior.
+
+## Backend integration
+
+The independently running `policy_copilot_rag_service` serves FastAPI at local
+port 8002 in this workspace, because ports 8000 and 8001 are occupied by Flame
+RAG services. `.env.local` sets `POLICY_API_URL=http://127.0.0.1:8002`.
+The frontend at port 3000 uses `lib/api.ts` and strict wire DTOs in
+`lib/api-contracts.ts` through `app/api/policy/[...path]/route.ts`. The route
+allowlists operations, checks local origins and keeps `POLICY_ADMIN_API_KEY`
+server-only. `.env.example` documents local configuration.
+
+Libraries, documents and selected-library sessions come from the backend;
+never restore seeded localStorage fallbacks or simulated uploads/responses.
+Backend initialization creates the built-in **Software policy** library and
+attaches every seeded policy document, including existing records. The wire
+`LibraryOut.is_system` flag maps to `Library.isSystem`; use this identity rather
+than the library name or a fixed ID. Display it first and keep it read-only:
+no rename, deletion, uploads, document assignment, removal, or policy deletion.
+Seeded documents also stay read-only in the global document manager and cannot
+be moved into custom libraries. The backend enforces the same protections.
+Chat returns complete JSON and real citations. Transcripts alone stay in this
+browser, keyed by backend session; the backend has no message history API.
+Failed user query bubbles carry a round destructive badge at the bottom-right
+edge, with reserved space before details and timestamps for its touch target.
+Details and retry work through keyboard and touch. The loading message fills
+the conversation lane and gives its 32px thinking orb a 40px icon slot; wrap
+status copy so the canvas is never clipped. Persist structured
+`Message.failure` metadata in transcripts
+for unavailable services, timeouts, and invalid or missing responses. Associate
+failure and retry with the query ID; manual cancellation is not an error.
+Chat keeps its session toolbar in two compact rows: shadcn Select, a new-session
+icon, Conversation/Evidence ToggleGroup and a secondary Library options menu.
+Use shadcn Select for library/session choices and InputGroup for input/action
+compositions rather than native select elements or parallel controls.
+Corpus and document assignment lists show at most three documents per page;
+filters reset the page and list changes clamp an empty final page.
+Backend uploads accept PDF, DOCX, legacy DOC, PPTX, CSV, text and Markdown.
+`pypdf`, `python-docx`, `python-pptx` and the server's `antiword` executable
+(with a LibreOffice fallback for short or RTF-based legacy Word files)
+convert documents into normalized readable text before hashing, storage and
+indexing; original binaries are not retained. Scanned or image-only documents
+need OCR before upload, and encrypted documents are rejected per file.
+`GET /documents/upload-options` exposes available extensions and configured
+limits through the proxy; the upload manager and wizard use it for their file
+pickers and size hints. Defaults are 20,000,000 bytes/file, 10 files/request
+and 2,000,000 extracted characters/file; environment overrides apply.
+Office archive expansion and legacy conversion time are bounded.
+Library deletion preserves
+documents and clears session library selection. Use `/documents`,
+`/libraries/[id]/documents`, and `/sessions` for management. Dashboard service
+status uses `/health`. See `docs/API_INTEGRATION.md` for contracts and flow.
+
+New feature compositions reuse the existing primitives: `ServiceStatus`
+(`components/dashboard/service-status.tsx`), the document manager, and session
+manager. No new design tokens, fonts, shared primitives or dependencies were
+introduced by the integration.
