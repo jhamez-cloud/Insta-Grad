@@ -24,6 +24,7 @@ import {
   type MetalFxProps
 } from 'metal-fx';
 import { PromptBarBeam } from '@/components/ui/prompt-bar-beam';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react';
@@ -819,12 +820,18 @@ const PromptBar: React.FC<PromptBarProps> = ({
               <div className="flex items-center gap-2 text-[13px] leading-[18px]">
                 <span className="[color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">Effort</span>
                 <span className="font-medium">{level}</span>
-                <span
-                  className="ms-auto inline-flex [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]"
-                  title="Higher effort thinks longer before answering"
-                >
-                  <HugeiconsIcon icon={HelpCircleIcon} size={14} strokeWidth={1.8} />
-                </span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="About effort"
+                      className="ms-auto -my-1 inline-flex size-6 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]"
+                    >
+                      <HugeiconsIcon icon={HelpCircleIcon} size={14} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Higher effort thinks longer before answering</TooltipContent>
+                </Tooltip>
               </div>
               <div className="mt-3 flex justify-between text-[12px] leading-4 [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
                 <span>Faster</span>
@@ -1023,24 +1030,28 @@ const PromptBar: React.FC<PromptBarProps> = ({
                 className="pb-control inline-flex min-w-0 flex-none shrink rounded-lg"
                 data-active={modelOpen ? '' : undefined}
               >
-                <button
-                  type="button"
-                  className={CONTROL_BUTTON_CLASS}
-                  aria-label="Choose model"
-                  aria-expanded={modelOpen}
-                  title={model.name}
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => {
-                    focusInput();
-                    setPlusOpen(false);
-                    setEffortOpen(false);
-                    setActive(Math.max(0, models.indexOf(model)));
-                    setModelOpen(v => !v);
-                  }}
-                >
-                  <span className="max-w-32 truncate">{model.name}</span>
-                  <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2.4} className="flex-none" />
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={CONTROL_BUTTON_CLASS}
+                      aria-label="Choose model"
+                      aria-expanded={modelOpen}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        focusInput();
+                        setPlusOpen(false);
+                        setEffortOpen(false);
+                        setActive(Math.max(0, models.indexOf(model)));
+                        setModelOpen(v => !v);
+                      }}
+                    >
+                      <span className="max-w-32 truncate">{model.name}</span>
+                      <HugeiconsIcon icon={ArrowDown01Icon} size={12} strokeWidth={2.4} className="flex-none" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{model.name}</TooltipContent>
+                </Tooltip>
               </div>
             ) : null}
             {efforts.length > 0 ? (
@@ -1049,23 +1060,27 @@ const PromptBar: React.FC<PromptBarProps> = ({
                 data-active={effortOpen ? '' : undefined}
                 data-emphasis={maxed ? '' : undefined}
               >
-                <button
-                  type="button"
-                  className={CONTROL_BUTTON_CLASS}
-                  aria-label="Choose effort"
-                  aria-expanded={effortOpen}
-                  title={level}
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => {
-                    focusInput();
-                    setPlusOpen(false);
-                    setModelOpen(false);
-                    setEffortOpen(v => !v);
-                  }}
-                >
-                  <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={2} className="flex-none" />
-                  <span className="max-w-24 truncate">{level}</span>
-                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className={CONTROL_BUTTON_CLASS}
+                      aria-label="Choose effort"
+                      aria-expanded={effortOpen}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => {
+                        focusInput();
+                        setPlusOpen(false);
+                        setModelOpen(false);
+                        setEffortOpen(v => !v);
+                      }}
+                    >
+                      <HugeiconsIcon icon={SparklesIcon} size={14} strokeWidth={2} className="flex-none" />
+                      <span className="max-w-24 truncate">{level}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{level}</TooltipContent>
+                </Tooltip>
               </div>
             ) : null}
             <span className="flex-auto" aria-hidden="true" />
