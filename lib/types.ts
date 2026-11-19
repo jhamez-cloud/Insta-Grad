@@ -8,11 +8,20 @@ export interface UploadItem {
   type: string
   progress: number
   status: UploadStatus
+  /** Retain the actual browser file until multipart upload completes. */
+  file?: File
+  documentId?: number
+  category?: string
+  chunkCount?: number
+  source?: string
+  /** The backend does not expose original file sizes. */
+  sizeKnown?: boolean
 }
 
 export interface Library {
   id: string
   name: string
+  isSystem: boolean
   description?: string
   createdAt: string
   updatedAt: string
@@ -23,10 +32,23 @@ export interface Library {
 export type MessageRole = "user" | "assistant"
 export type MessageStatus = "streaming" | "complete" | "stopped" | "error"
 
+export type QueryFailureKind = "unavailable" | "timeout" | "response_failed"
+
+export interface QueryFailure {
+  kind: QueryFailureKind
+  message: string
+  status?: number
+}
+
 export interface MessageSource {
   id: string
   fileName: string
   excerpt: string
+  documentId?: number
+  chunkId?: string
+  category?: string
+  similarity?: number
+  source?: string
 }
 
 export interface Message {
@@ -37,6 +59,10 @@ export interface Message {
   createdAt: string
   status: MessageStatus
   sources?: MessageSource[]
+  sessionId?: number
+  model?: string
+  /** Failure of this user query, retained with its browser transcript. */
+  failure?: QueryFailure
 }
 
 export type ThoughtStepStatus = "pending" | "active" | "complete"
@@ -65,3 +91,5 @@ export interface CreateLibraryInput {
   description?: string
   files: UploadItem[]
 }
+
+export type * from "@/lib/api-contracts"
